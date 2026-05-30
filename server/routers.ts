@@ -1,0 +1,467 @@
+import { COOKIE_NAME } from "@shared/const";
+import { getSessionCookieOptions } from "./_core/cookies";
+import { systemRouter } from "./_core/systemRouter";
+import { publicProcedure, protectedProcedure, adminProcedure, router } from "./_core/trpc";
+import { TRPCError } from "@trpc/server";
+import { z } from "zod";
+import * as db from "./db";
+import { notifyOwner } from "./_core/notification";
+import { storagePut } from "./storage";
+import { callDataApi } from "./_core/dataApi";
+import crypto from "crypto";
+
+// ─── Role-based middleware ──────────────────────────────────────────────────
+
+const modProcedure = protectedProcedure.use(({ ctx, next }) => {
+  if (ctx.user.role !== "admin" && ctx.user.role !== "moderator") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Moderator access required" });
+  }
+  return next({ ctx });
+});
+
+// ─── Helper: hash password with crypto ──────────────────────────────────────
+
+function hashPassword(password: string): string {
+  return crypto.createHash("sha256").update(password).digest("hex");
+}
+
+function verifyPassword(password: string, hash: string): boolean {
+  return hashPassword(password) === hash;
+}
+
+// ─── Admin session tokens (in-memory store for server-side validation) ──────
+
+const adminSessions = new Map<string, { username: string; createdAt: number }>();
+
+function cleanExpiredSessions() {
+  const now = Date.now();
+  const TTL = 24 * 60 * 60 * 1000;
+  Array.from(adminSessions.entries()).forEach(([token, session]) => {
+    if (now - session.createdAt > TTL) {
+      adminSessions.delete(token);
+    }
+  });
+}
+
+function validateAdminToken(token: string | undefined): boolean {
+  if (!token) return false;
+  cleanExpiredSessions();
+  return adminSessions.has(token);
+}
+
+// ─── Admin-session-protected procedure ──────────────────────────────────────
+
+const dashboardProcedure = publicProcedure.use(({ ctx, next }) => {
+  if (ctx.user?.role === "admin") {
+    return next({ ctx });
+  }
+  const authHeader = ctx.req.headers["x-admin-token"] as string | undefined;
+  if (validateAdminToken(authHeader)) {
+    return next({ ctx });
+  }
+  throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
+});
+
+export const appRouter = router({
+  system: systemRouter,
+
+  auth: router({
+    me: publicProcedure.query((opts) => opts.ctx.user),
+    logout: publicProcedure.mutation(({ ctx }) => {
+      const cookieOptions = getSessionCookieOptions(ctx.req);
+      ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      return { success: true } as const;
+    }),
+  }),
+
+  // ─── Admin Auth (separate username/password) ────────────────────────────
+
+  adminAuth: router({
+    login: publicProcedure
+      .input(z.object({ username: z.string(), password: z.string() }))
+      .mutation(async ({ input }) => {
+        const cred = await db.getAdminCredentialByUsername(input.username);
+        if (!cred || !verifyPassword(input.password, cred.passwordHash)) {
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid credentials" });
+        }
+        const token = crypto.randomBytes(32).toString("hex");
+        adminSessions.set(token, { username: cred.username, createdAt: Date.now() });
+        return { success: true, token, username: cred.username };
+      }),
+    verify: publicProcedure
+      .input(z.object({ token: z.string() }))
+      .query(({ input }) => {
+        return { valid: validateAdminToken(input.token) };
+      }),
+    logout: publicProcedure
+      .input(z.object({ token: z.string() }))
+      .mutation(({ input }) => {
+        adminSessions.delete(input.token);
+        return { success: true };
+      }),
+    setup: publicProcedure
+      .input(z.object({ username: z.string().min(3), password: z.string().min(6) }))
+      .mutation(async ({ input }) => {
+        const exists = await db.adminCredentialExists();
+        if (exists) {
+          throw new TRPCError({ code: "CONFLICT", message: "Admin credentials already configured" });
+        }
+        const passwordHash = hashPassword(input.password);
+        await db.createAdminCredential(input.username, passwordHash);
+        return { success: true };
+      }),
+    hasCredentials: publicProcedure.query(async () => {
+      const exists = await db.adminCredentialExists();
+      return { exists };
+    }),
+  }),
+
+  // ─── User Management ──────────────────────────────────────────────────────
+
+  users: router({
+    list: dashboardProcedure.query(async () => {
+      return db.getAllUsers();
+    }),
+    updateRole: dashboardProcedure
+      .input(z.object({ userId: z.number(), role: z.enum(["user", "admin", "moderator"]) }))
+      .mutation(async ({ input }) => {
+        await db.updateUserRole(input.userId, input.role);
+        return { success: true };
+      }),
+    getById: publicProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
+      const user = await db.getUserById(input.id);
+      if (!user) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
+      return { id: user.id, name: user.name, role: user.role, avatarUrl: user.avatarUrl, createdAt: user.createdAt };
+    }),
+    uploadAvatar: protectedProcedure
+      .input(z.object({ imageBase64: z.string(), mimeType: z.string() }))
+      .mutation(async ({ input, ctx }) => {
+        const buffer = Buffer.from(input.imageBase64, "base64");
+        const ext = input.mimeType.split("/")[1] || "png";
+        const key = `avatars/${ctx.user.id}-${Date.now()}.${ext}`;
+        const { url } = await storagePut(key, buffer, input.mimeType);
+        await db.updateUserAvatar(ctx.user.id, url);
+        return { success: true, avatarUrl: url };
+      }),
+    mute: dashboardProcedure
+      .input(z.object({ userId: z.number() }))
+      .mutation(async ({ input }) => {
+        await db.muteUser(input.userId);
+        return { success: true };
+      }),
+    unmute: dashboardProcedure
+      .input(z.object({ userId: z.number() }))
+      .mutation(async ({ input }) => {
+        await db.unmuteUser(input.userId);
+        return { success: true };
+      }),
+    updateDisplayName: protectedProcedure
+      .input(z.object({ displayName: z.string().min(1).max(100) }))
+      .mutation(async ({ input, ctx }) => {
+        await db.updateUserDisplayName(ctx.user.id, input.displayName);
+        return { success: true };
+      }),
+  }),
+
+  // ─── Articles ─────────────────────────────────────────────────────────────
+
+  articles: router({
+    list: publicProcedure
+      .input(z.object({ limit: z.number().optional(), offset: z.number().optional(), searchQuery: z.string().optional(), sortBy: z.enum(['newest', 'oldest', 'mostViewed']).optional() }).optional())
+      .query(async ({ input }) => {
+        return db.getArticles(input?.limit || 50, input?.offset || 0, input?.searchQuery, input?.sortBy || 'newest');
+      }),
+    getById: publicProcedure.input(z.object({ id: z.number() })).query(async ({ input, ctx }) => {
+      const article = await db.getArticleById(input.id);
+      if (!article) return undefined;
+      if (!article.isPublished && (!ctx.user || (ctx.user.id !== article.authorId && ctx.user.role !== "admin"))) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "This draft is not accessible" });
+      }
+      return article;
+    }),
+    incrementView: publicProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+      await db.incrementViewCount(input.id);
+      return { success: true };
+    }),
+    getByAuthor: publicProcedure.input(z.object({ authorId: z.number() })).query(async ({ input }) => {
+      return db.getArticlesByAuthor(input.authorId);
+    }),
+    create: protectedProcedure
+      .input(
+        z.object({
+          title: z.string().min(1),
+          content: z.string().min(1),
+          excerpt: z.string().optional(),
+          coverImageUrl: z.string().optional(),
+          isPublished: z.boolean().optional().default(false),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const isMuted = await db.isUserMuted(ctx.user.id);
+        if (isMuted) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Your account is muted and cannot create articles" });
+        }
+        const articleId = await db.createArticle(
+          input.title,
+          input.content,
+          input.excerpt || null,
+          input.coverImageUrl || null,
+          ctx.user.id
+        );
+        if (!articleId) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        if (input.isPublished) {
+          await db.publishArticle(articleId);
+        }
+        return { success: true, articleId, isDraft: !input.isPublished };
+      }),
+    update: protectedProcedure
+      .input(
+        z.object({
+          id: z.number(),
+          title: z.string().min(1),
+          content: z.string().min(1),
+          excerpt: z.string().optional(),
+          coverImageUrl: z.string().optional(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const article = await db.getArticleById(input.id);
+        if (!article) throw new TRPCError({ code: "NOT_FOUND" });
+        if (article.authorId !== ctx.user.id && ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        await db.updateArticle(input.id, input.title, input.content, input.excerpt || null, input.coverImageUrl || null);
+        return { success: true };
+      }),
+    delete: modProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+      await db.deleteArticle(input.id);
+      return { success: true };
+    }),
+    togglePin: modProcedure
+      .input(z.object({ id: z.number(), isPinned: z.boolean() }))
+      .mutation(async ({ input }) => {
+        await db.togglePinArticle(input.id, input.isPinned);
+        return { success: true };
+      }),
+    toggleLock: modProcedure
+      .input(z.object({ id: z.number(), isLocked: z.boolean() }))
+      .mutation(async ({ input }) => {
+        await db.toggleLockArticle(input.id, input.isLocked);
+        return { success: true };
+      }),
+    getUserDrafts: protectedProcedure.query(async ({ ctx }) => {
+      return db.getUserDrafts(ctx.user.id);
+    }),
+    publishDraft: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const article = await db.getArticleById(input.id);
+        if (!article) throw new TRPCError({ code: "NOT_FOUND" });
+        if (article.authorId !== ctx.user.id && ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        await db.publishArticle(input.id);
+        return { success: true };
+      }),
+  }),
+
+  // ─── Comments ─────────────────────────────────────────────────────────────
+
+  comments: router({
+    listByArticle: publicProcedure.input(z.object({ articleId: z.number() })).query(async ({ input }) => {
+      return db.getCommentsByArticle(input.articleId);
+    }),
+    create: protectedProcedure
+      .input(z.object({ content: z.string().min(1), articleId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const isMuted = await db.isUserMuted(ctx.user.id);
+        if (isMuted) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Your account is muted and cannot create comments" });
+        }
+        await db.createComment(input.content, input.articleId, ctx.user.id);
+        return { success: true };
+      }),
+    delete: modProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+      await db.deleteComment(input.id);
+      return { success: true };
+    }),
+  }),
+
+  // ─── Upload (for article images) ─────────────────────────────────────────
+
+  upload: router({
+    image: protectedProcedure
+      .input(z.object({ imageBase64: z.string(), mimeType: z.string(), filename: z.string().optional() }))
+      .mutation(async ({ input, ctx }) => {
+        const buffer = Buffer.from(input.imageBase64, "base64");
+        const ext = input.mimeType.split("/")[1] || "png";
+        const key = `articles/${ctx.user.id}-${Date.now()}.${ext}`;
+        const { url } = await storagePut(key, buffer, input.mimeType);
+        return { success: true, url };
+      }),
+  }),
+
+  // ─── Site Pages ────────────────────────────────────────────────────────
+
+  pages: router({
+    getBySlug: publicProcedure.input(z.object({ slug: z.string() })).query(async ({ input }) => {
+      return db.getPageBySlug(input.slug);
+    }),
+    update: dashboardProcedure
+      .input(z.object({ slug: z.string(), title: z.string(), content: z.string() }))
+      .mutation(async ({ input }) => {
+        await db.updatePage(input.slug, input.title, input.content);
+        return { success: true };
+      }),
+    list: dashboardProcedure.query(async () => {
+      return db.getAllPages();
+    }),
+  }),
+
+  // ─── Contact Messages ─────────────────────────────────────────────────
+
+  contact: router({
+    submit: publicProcedure
+      .input(
+        z.object({
+          name: z.string().min(1),
+          email: z.string().email(),
+          subject: z.string().min(1),
+          message: z.string().min(1),
+        })
+      )
+      .mutation(async ({ input }) => {
+        await db.createContactMessage(input.name, input.email, input.subject, input.message);
+        await notifyOwner({
+          title: `New Contact: ${input.subject}`,
+          content: `From: ${input.name} (${input.email})\n\n${input.message}`,
+        });
+        return { success: true };
+      }),
+    list: dashboardProcedure.query(async () => {
+      return db.getContactMessages();
+    }),
+    markRead: dashboardProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+      await db.markMessageRead(input.id);
+      return { success: true };
+    }),
+    delete: dashboardProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+      await db.deleteContactMessage(input.id);
+      return { success: true };
+    }),
+  }),
+
+  // ─── Site Settings ──────────────────────────────────────────────────────
+
+  settings: router({
+    getConstructionMode: publicProcedure.query(async () => {
+      const isUnderConstruction = await db.isUnderConstruction();
+      return { isUnderConstruction };
+    }),
+    setConstructionMode: dashboardProcedure
+      .input(z.object({ isUnderConstruction: z.boolean() }))
+      .mutation(async ({ input }) => {
+        await db.setSetting("isUnderConstruction", input.isUnderConstruction ? "true" : "false");
+        return { success: true };
+      }),
+    getFeaturedVideoUrl: publicProcedure.query(async () => {
+      const url = await db.getSetting("featuredVideoUrl");
+      return { url: url || null };
+    }),
+    setFeaturedVideoUrl: dashboardProcedure
+      .input(z.object({ url: z.string().url().includes("youtube").or(z.string().url().includes("youtu.be")).or(z.literal("")) }))
+      .mutation(async ({ input }) => {
+        await db.setSetting("featuredVideoUrl", input.url);
+        return { success: true };
+      }),
+  }),
+
+  // ─── YouTube Latest Video ─────────────────────────────────────────────────
+
+  youtube: router({
+    getLatestVideo: publicProcedure.query(async () => {
+      // Try to fetch the latest video from the RTSG channel via the built-in YouTube API
+      try {
+        const result = await callDataApi("Youtube/get_channel_videos", {
+          query: { id: "https://www.youtube.com/@RTSG_Main", filter: "videos_latest", hl: "en", gl: "US" },
+        }) as { contents?: Array<{ type: string; video?: { videoId?: string; title?: string; thumbnails?: Array<{ url: string }>; publishedTimeText?: string } }> };
+
+        const first = result?.contents?.find((c) => c.type === "video");
+        if (first?.video?.videoId) {
+          const v = first.video;
+          return {
+            videoId: v.videoId,
+            title: v.title || null,
+            thumbnail: v.thumbnails?.[0]?.url || null,
+            publishedTimeText: v.publishedTimeText || null,
+            embedUrl: `https://www.youtube.com/embed/${v.videoId}`,
+            source: "api" as const,
+          };
+        }
+      } catch (err) {
+        console.warn("[YouTube] Failed to fetch latest video:", err);
+      }
+
+      // Fallback: use admin-configured URL
+      const configuredUrl = await db.getSetting("featuredVideoUrl");
+      if (configuredUrl) {
+        // Extract video ID from youtube.com/watch?v=ID or youtu.be/ID
+        const match = configuredUrl.match(/(?:v=|youtu\.be\/)([\w-]{11})/);
+        if (match) {
+          return {
+            videoId: match[1],
+            title: null,
+            thumbnail: null,
+            publishedTimeText: null,
+            embedUrl: `https://www.youtube.com/embed/${match[1]}`,
+            source: "manual" as const,
+          };
+        }
+      }
+
+      return null;
+    }),
+  }),
+
+  pdfResources: router({
+    list: publicProcedure.query(async () => {
+      return db.getPdfResources();
+    }),
+    create: dashboardProcedure
+      .input(z.object({ title: z.string().min(1), pdfFile: z.string(), filename: z.string() }))
+      .mutation(async ({ input }) => {
+        const buffer = Buffer.from(input.pdfFile, "base64");
+
+        // Validate PDF magic bytes (%PDF-)
+        if (buffer.length < 5 || buffer.slice(0, 5).toString("ascii") !== "%PDF-") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "File does not appear to be a valid PDF" });
+        }
+
+        // Sanitize filename: replace spaces and special chars with hyphens, keep alphanumeric/dots/hyphens
+        const sanitized = input.filename
+          .toLowerCase()
+          .replace(/[^a-z0-9.\-_]/g, "-")
+          .replace(/-+/g, "-")
+          .replace(/^-|-$/g, "");
+        const safeFilename = sanitized || "document.pdf";
+
+        const key = `pdfs/${Date.now()}-${safeFilename}`;
+        let url: string;
+        try {
+          const result = await storagePut(key, buffer, "application/pdf");
+          url = result.url;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : "Unknown storage error";
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `PDF upload failed: ${msg}` });
+        }
+        await db.createPdfResource(input.title, url);
+        return { success: true };
+      }),
+    delete: dashboardProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+      await db.deletePdfResource(input.id);
+      return { success: true };
+    }),
+  }),
+});
+
+export type AppRouter = typeof appRouter;
