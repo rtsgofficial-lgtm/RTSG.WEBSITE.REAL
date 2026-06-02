@@ -165,6 +165,173 @@
     -webkit-text-fill-color: transparent;
     background-clip: text;
   }
+
+  .mobile-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: oklch(1 0 0 / 18%) transparent;
+  }
+
+  .mobile-scrollbar::-webkit-scrollbar {
+    height: 6px;
+  }
+
+  .mobile-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .mobile-scrollbar::-webkit-scrollbar-thumb {
+    background: oklch(1 0 0 / 18%);
+    border-radius: 999px;
+  }
+
+  .article-editor .ProseMirror {
+    overflow-wrap: anywhere;
+    word-break: normal;
+    white-space: pre-wrap;
+  }
+
+  .article-editor .ProseMirror:focus {
+    outline: none;
+  }
+
+  .article-editor .ProseMirror p.is-editor-empty:first-child::before {
+    color: var(--muted-foreground);
+    content: attr(data-placeholder);
+    float: left;
+    height: 0;
+    pointer-events: none;
+  }
+
+  .article-prose,
+  .prose {
+    color: var(--muted-foreground);
+    line-height: 1.8;
+    overflow-wrap: anywhere;
+  }
+
+  .article-prose :where(p),
+  .prose :where(p) {
+    margin: 0.9rem 0;
+    min-height: 1.5em;
+  }
+
+  .article-prose :where(p:empty)::before,
+  .prose :where(p:empty)::before {
+    content: "\00a0";
+  }
+
+  .article-prose :where(h1),
+  .prose :where(h1) {
+    color: var(--foreground);
+    font-size: clamp(1.875rem, 6vw, 2.5rem);
+    font-weight: 800;
+    line-height: 1.12;
+    margin: 2rem 0 1rem;
+  }
+
+  .article-prose :where(h2),
+  .prose :where(h2) {
+    color: var(--foreground);
+    font-size: clamp(1.5rem, 5vw, 2rem);
+    font-weight: 750;
+    line-height: 1.2;
+    margin: 1.75rem 0 0.85rem;
+  }
+
+  .article-prose :where(h3),
+  .prose :where(h3) {
+    color: var(--foreground);
+    font-size: clamp(1.2rem, 4vw, 1.5rem);
+    font-weight: 700;
+    line-height: 1.25;
+    margin: 1.5rem 0 0.75rem;
+  }
+
+  .article-prose
+    :where(h1:first-child, h2:first-child, h3:first-child, p:first-child),
+  .prose :where(h1:first-child, h2:first-child, h3:first-child, p:first-child) {
+    margin-top: 0;
+  }
+
+  .article-prose :where(ul),
+  .prose :where(ul) {
+    list-style: disc;
+    margin: 1rem 0;
+    padding-left: 1.5rem;
+  }
+
+  .article-prose :where(ol),
+  .prose :where(ol) {
+    list-style: decimal;
+    margin: 1rem 0;
+    padding-left: 1.5rem;
+  }
+
+  .article-prose :where(li),
+  .prose :where(li) {
+    margin: 0.35rem 0;
+    padding-left: 0.25rem;
+  }
+
+  .article-prose :where(blockquote),
+  .prose :where(blockquote) {
+    border-left: 3px solid var(--primary);
+    color: var(--foreground);
+    margin: 1.25rem 0;
+    padding: 0.5rem 0 0.5rem 1rem;
+    background: oklch(1 0 0 / 3%);
+    border-radius: 0 0.75rem 0.75rem 0;
+  }
+
+  .article-prose :where(code),
+  .prose :where(code) {
+    background: oklch(1 0 0 / 8%);
+    border: 1px solid oklch(1 0 0 / 10%);
+    border-radius: 0.35rem;
+    color: var(--foreground);
+    font-size: 0.9em;
+    padding: 0.15rem 0.35rem;
+  }
+
+  .article-prose :where(pre),
+  .prose :where(pre) {
+    background: oklch(0.06 0 0 / 95%);
+    border: 1px solid oklch(1 0 0 / 10%);
+    border-radius: 0.9rem;
+    margin: 1.25rem 0;
+    overflow-x: auto;
+    padding: 1rem;
+  }
+
+  .article-prose :where(pre code),
+  .prose :where(pre code) {
+    background: transparent;
+    border: 0;
+    padding: 0;
+  }
+
+  .article-prose :where(a),
+  .prose :where(a) {
+    color: var(--primary);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  .article-prose :where(img),
+  .prose :where(img) {
+    border-radius: 1rem;
+    display: block;
+    height: auto;
+    margin: 1.5rem auto;
+    max-width: 100%;
+  }
+
+  .article-prose :where(hr),
+  .prose :where(hr) {
+    border: 0;
+    border-top: 1px solid oklch(1 0 0 / 12%);
+    margin: 2rem 0;
+  }
 }
 
 @layer utilities {
@@ -180,18 +347,34 @@
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: scale(0.97); }
-  to { opacity: 1; transform: scale(1); }
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 @keyframes slideUp {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes videoFadeIn {
-  from { opacity: 0; }
-  to { opacity: 0.35; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 0.35;
+  }
 }
 
 /* ─── Chromatic Glitch Hover Animation ─────────────────────────────────────
@@ -201,12 +384,32 @@
    ─────────────────────────────────────────────────────────────────────── */
 
 @keyframes chromaticGlitchHover {
-  0%   { text-shadow: none; }
-  20%  { text-shadow: -1px 0 rgba(255, 30, 30, 0.6), 1px 0 rgba(0, 220, 220, 0.6); }
-  40%  { text-shadow: 1px 0 rgba(255, 30, 30, 0.4), -1px 0 rgba(0, 220, 220, 0.4); }
-  60%  { text-shadow: -1px 0 rgba(255, 30, 30, 0.5), 1px 0 rgba(0, 220, 220, 0.5); }
-  80%  { text-shadow: 1px 0 rgba(255, 30, 30, 0.3), -1px 0 rgba(0, 220, 220, 0.3); }
-  100% { text-shadow: none; }
+  0% {
+    text-shadow: none;
+  }
+  20% {
+    text-shadow:
+      -1px 0 rgba(255, 30, 30, 0.6),
+      1px 0 rgba(0, 220, 220, 0.6);
+  }
+  40% {
+    text-shadow:
+      1px 0 rgba(255, 30, 30, 0.4),
+      -1px 0 rgba(0, 220, 220, 0.4);
+  }
+  60% {
+    text-shadow:
+      -1px 0 rgba(255, 30, 30, 0.5),
+      1px 0 rgba(0, 220, 220, 0.5);
+  }
+  80% {
+    text-shadow:
+      1px 0 rgba(255, 30, 30, 0.3),
+      -1px 0 rgba(0, 220, 220, 0.3);
+  }
+  100% {
+    text-shadow: none;
+  }
 }
 
 .glitch-hover:hover {

@@ -8,6 +8,16 @@ import { ArrowLeft, Loader2 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import RichTextEditor from "@/components/RichTextEditor";
 
+function isRichTextEmpty(html: string) {
+  const text = html
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .trim();
+  const hasMedia = /<(img|iframe|video|audio)\b/i.test(html);
+  return !text && !hasMedia;
+}
 
 export default function ArticleEdit() {
   const [, params] = useRoute("/articles/:id/edit");
@@ -30,7 +40,8 @@ export default function ArticleEdit() {
       toast.success("Article updated successfully");
       navigate(`/articles/${articleId}`);
     },
-    onError: (err: any) => toast.error(err.message || "Failed to update article"),
+    onError: (err: any) =>
+      toast.error(err.message || "Failed to update article"),
   });
 
   // Track whether we've initialized from the loaded article
@@ -49,7 +60,7 @@ export default function ArticleEdit() {
 
   if (isLoading) {
     return (
-      <div className="container max-w-3xl mx-auto py-12">
+      <div className="container max-w-4xl mx-auto py-8 sm:py-12">
         <Skeleton className="h-8 w-3/4 bg-white/5 mb-4" />
         <Skeleton className="h-96 w-full bg-white/5" />
       </div>
@@ -58,10 +69,15 @@ export default function ArticleEdit() {
 
   if (!article) {
     return (
-      <div className="container max-w-3xl mx-auto py-12 text-center">
+      <div className="container max-w-3xl mx-auto py-8 sm:py-12 text-center">
         <div className="glass rounded-2xl p-12">
-          <h2 className="text-xl font-bold text-foreground mb-2">Article not found</h2>
-          <Button onClick={() => navigate("/articles")} className="rounded-xl bg-primary text-primary-foreground">
+          <h2 className="text-xl font-bold text-foreground mb-2">
+            Article not found
+          </h2>
+          <Button
+            onClick={() => navigate("/articles")}
+            className="rounded-xl bg-primary text-primary-foreground"
+          >
             Back to Articles
           </Button>
         </div>
@@ -72,11 +88,18 @@ export default function ArticleEdit() {
   // Check authorization
   if (user?.id !== article.authorId && user?.role !== "admin") {
     return (
-      <div className="container max-w-3xl mx-auto py-12 text-center">
+      <div className="container max-w-3xl mx-auto py-8 sm:py-12 text-center">
         <div className="glass rounded-2xl p-12">
-          <h2 className="text-xl font-bold text-foreground mb-2">Not authorized</h2>
-          <p className="text-muted-foreground mb-6">You can only edit your own articles.</p>
-          <Button onClick={() => navigate("/articles")} className="rounded-xl bg-primary text-primary-foreground">
+          <h2 className="text-xl font-bold text-foreground mb-2">
+            Not authorized
+          </h2>
+          <p className="text-muted-foreground mb-6">
+            You can only edit your own articles.
+          </p>
+          <Button
+            onClick={() => navigate("/articles")}
+            className="rounded-xl bg-primary text-primary-foreground"
+          >
             Back to Articles
           </Button>
         </div>
@@ -86,7 +109,7 @@ export default function ArticleEdit() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim() || !content.trim()) {
+    if (!title.trim() || isRichTextEmpty(content)) {
       toast.error("Title and content are required");
       return;
     }
@@ -100,7 +123,7 @@ export default function ArticleEdit() {
   };
 
   return (
-    <div className="container max-w-3xl mx-auto py-12">
+    <div className="container max-w-4xl mx-auto py-8 sm:py-12">
       <div className="animate-fade-in">
         {/* Back */}
         <button
@@ -112,63 +135,75 @@ export default function ArticleEdit() {
         </button>
 
         {/* Edit Form */}
-        <form onSubmit={handleSubmit} className="glass rounded-2xl p-8">
-          <h1 className="text-2xl font-bold text-foreground mb-6">Edit Article</h1>
+        <form onSubmit={handleSubmit} className="glass rounded-2xl p-4 sm:p-8">
+          <h1 className="text-2xl sm:text-3xl font-bold text-foreground mb-6">
+            Edit Article
+          </h1>
 
           {/* Title */}
           <div className="mb-6">
-            <label className="block text-sm font-medium text-foreground mb-2">Title</label>
+            <label className="block text-sm font-medium text-foreground mb-2">
+              Title
+            </label>
             <input
               type="text"
               value={title}
-              onChange={(e) => setTitle(e.target.value)}
+              onChange={e => setTitle(e.target.value)}
               placeholder="Article title"
-              className="w-full px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30 transition-all"
+              className="w-full px-4 py-3 rounded-lg bg-white/5 border border-white/10 text-foreground text-base placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30 transition-all"
             />
           </div>
 
           {/* Excerpt */}
           <div className="mb-6">
-            <label className="block text-sm font-medium text-foreground mb-2">Excerpt (optional)</label>
-            <input
-              type="text"
+            <label className="block text-sm font-medium text-foreground mb-2">
+              Excerpt (optional)
+            </label>
+            <textarea
               value={excerpt}
-              onChange={(e) => setExcerpt(e.target.value)}
+              onChange={e => setExcerpt(e.target.value)}
               placeholder="Brief summary"
-              className="w-full px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30 transition-all"
+              rows={2}
+              className="w-full px-4 py-3 rounded-lg bg-white/5 border border-white/10 text-foreground text-base placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30 transition-all resize-none"
             />
           </div>
 
           {/* Cover Image */}
           <div className="mb-6">
-            <label className="block text-sm font-medium text-foreground mb-2">Cover Image URL (optional)</label>
+            <label className="block text-sm font-medium text-foreground mb-2">
+              Cover Image URL (optional)
+            </label>
             <input
               type="text"
               value={coverImageUrl}
-              onChange={(e) => setCoverImageUrl(e.target.value)}
+              onChange={e => setCoverImageUrl(e.target.value)}
               placeholder="https://example.com/image.jpg"
-              className="w-full px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30 transition-all"
+              className="w-full px-4 py-3 rounded-lg bg-white/5 border border-white/10 text-foreground text-base placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30 transition-all"
             />
           </div>
 
           {/* Content Editor — only render after content is initialized so Tiptap receives the real initial value */}
           <div className="mb-6">
-            <label className="block text-sm font-medium text-foreground mb-2">Content</label>
+            <label className="block text-sm font-medium text-foreground mb-2">
+              Content
+            </label>
             {initialized ? (
               <RichTextEditor content={content} onChange={setContent} />
             ) : (
               <div className="glass rounded-xl border border-white/10 min-h-[300px] flex items-center justify-center">
-                <span className="text-sm text-muted-foreground">Loading editor...</span>
+                <span className="text-sm text-muted-foreground">
+                  Loading editor...
+                </span>
               </div>
             )}
           </div>
 
           {/* Submit */}
-          <div className="flex gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row">
             <Button
               type="submit"
               disabled={updateArticle.isPending}
-              className="rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground gap-2"
+              className="w-full rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground gap-2 sm:w-auto"
             >
               {updateArticle.isPending ? (
                 <>
@@ -183,7 +218,7 @@ export default function ArticleEdit() {
               type="button"
               variant="ghost"
               onClick={() => navigate(`/articles/${articleId}`)}
-              className="glitch-hover rounded-lg"
+              className="glitch-hover w-full rounded-lg sm:w-auto"
             >
               Cancel
             </Button>

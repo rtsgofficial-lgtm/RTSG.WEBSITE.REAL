@@ -24,7 +24,7 @@ import {
   Undo,
   Redo,
 } from "lucide-react";
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 interface RichTextEditorProps {
   content: string;
@@ -32,7 +32,11 @@ interface RichTextEditorProps {
   placeholder?: string;
 }
 
-export default function RichTextEditor({ content, onChange, placeholder }: RichTextEditorProps) {
+export default function RichTextEditor({
+  content,
+  onChange,
+  placeholder,
+}: RichTextEditorProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadImage = trpc.upload.image.useMutation();
 
@@ -42,7 +46,16 @@ export default function RichTextEditor({ content, onChange, placeholder }: RichT
         heading: { levels: [1, 2, 3] },
       }),
       Image.configure({ inline: false, allowBase64: true }),
-      Link.configure({ openOnClick: false }),
+      Link.configure({
+        openOnClick: false,
+        autolink: true,
+        linkOnPaste: true,
+        protocols: ["http", "https", "mailto"],
+        HTMLAttributes: {
+          rel: "noopener noreferrer nofollow",
+          target: "_blank",
+        },
+      }),
       Underline,
       Placeholder.configure({ placeholder: placeholder || "Start writing..." }),
     ],
@@ -53,14 +66,26 @@ export default function RichTextEditor({ content, onChange, placeholder }: RichT
     editorProps: {
       attributes: {
         class:
-          "prose prose-invert prose-sm max-w-none min-h-[300px] px-4 py-3 focus:outline-none",
+          "tiptap-editor article-prose min-h-[360px] sm:min-h-[460px] max-w-none px-4 py-4 sm:px-5 sm:py-5 text-base focus:outline-none",
       },
     },
   });
 
+  useEffect(() => {
+    if (!editor) return;
+    const currentHtml = editor.getHTML();
+    if (content !== currentHtml) {
+      editor.commands.setContent(content || "", { emitUpdate: false });
+    }
+  }, [content, editor]);
+
   const handleImageUpload = useCallback(
     async (file: File) => {
       if (!editor) return;
+      if (!file.type.startsWith("image/")) {
+        toast.error("Please upload an image file");
+        return;
+      }
       if (file.size > 5 * 1024 * 1024) {
         toast.error("Image must be under 5MB");
         return;
@@ -95,7 +120,16 @@ export default function RichTextEditor({ content, onChange, placeholder }: RichT
       editor.chain().focus().extendMarkRange("link").unsetLink().run();
       return;
     }
-    editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run();
+
+    const normalizedUrl = /^(https?:\/\/|mailto:)/i.test(url)
+      ? url
+      : `https://${url}`;
+    editor
+      .chain()
+      .focus()
+      .extendMarkRange("link")
+      .setLink({ href: normalizedUrl })
+      .run();
   }, [editor]);
 
   if (!editor) return null;
@@ -115,7 +149,8 @@ export default function RichTextEditor({ content, onChange, placeholder }: RichT
       type="button"
       onClick={onClick}
       title={title}
-      className={`p-1.5 rounded-lg transition-colors ${
+      aria-label={title}
+      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors ${
         isActive
           ? "bg-primary/20 text-primary"
           : "text-muted-foreground hover:text-foreground hover:bg-white/5"
@@ -125,10 +160,14 @@ export default function RichTextEditor({ content, onChange, placeholder }: RichT
     </button>
   );
 
+  const ToolbarSeparator = () => (
+    <div className="h-5 w-px shrink-0 bg-white/10 mx-1" />
+  );
+
   return (
-    <div className="glass rounded-xl overflow-hidden border border-white/10">
+    <div className="glass article-editor rounded-xl overflow-hidden border border-white/10">
       {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-0.5 px-3 py-2 border-b border-white/10 bg-white/[0.02]">
+      <div className="flex items-center gap-1 overflow-x-auto border-b border-white/10 bg-white/[0.02] px-2 py-2 sm:px-3 mobile-scrollbar">
         <ToolbarButton
           onClick={() => editor.chain().focus().toggleBold().run()}
           isActive={editor.isActive("bold")}
@@ -165,31 +204,37 @@ export default function RichTextEditor({ content, onChange, placeholder }: RichT
           <Code className="w-4 h-4" />
         </ToolbarButton>
 
-        <div className="w-px h-5 bg-white/10 mx-1" />
+        <ToolbarSeparator />
 
         <ToolbarButton
-          onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+          onClick={() =>
+            editor.chain().focus().toggleHeading({ level: 1 }).run()
+          }
           isActive={editor.isActive("heading", { level: 1 })}
           title="Heading 1"
         >
           <Heading1 className="w-4 h-4" />
         </ToolbarButton>
         <ToolbarButton
-          onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+          onClick={() =>
+            editor.chain().focus().toggleHeading({ level: 2 }).run()
+          }
           isActive={editor.isActive("heading", { level: 2 })}
           title="Heading 2"
         >
           <Heading2 className="w-4 h-4" />
         </ToolbarButton>
         <ToolbarButton
-          onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
+          onClick={() =>
+            editor.chain().focus().toggleHeading({ level: 3 }).run()
+          }
           isActive={editor.isActive("heading", { level: 3 })}
           title="Heading 3"
         >
           <Heading3 className="w-4 h-4" />
         </ToolbarButton>
 
-        <div className="w-px h-5 bg-white/10 mx-1" />
+        <ToolbarSeparator />
 
         <ToolbarButton
           onClick={() => editor.chain().focus().toggleBulletList().run()}
@@ -219,9 +264,13 @@ export default function RichTextEditor({ content, onChange, placeholder }: RichT
           <Minus className="w-4 h-4" />
         </ToolbarButton>
 
-        <div className="w-px h-5 bg-white/10 mx-1" />
+        <ToolbarSeparator />
 
-        <ToolbarButton onClick={addLink} isActive={editor.isActive("link")} title="Add Link">
+        <ToolbarButton
+          onClick={addLink}
+          isActive={editor.isActive("link")}
+          title="Add Link"
+        >
           <LinkIcon className="w-4 h-4" />
         </ToolbarButton>
         <ToolbarButton
@@ -231,7 +280,7 @@ export default function RichTextEditor({ content, onChange, placeholder }: RichT
           <ImageIcon className="w-4 h-4" />
         </ToolbarButton>
 
-        <div className="w-px h-5 bg-white/10 mx-1" />
+        <ToolbarSeparator />
 
         <ToolbarButton
           onClick={() => editor.chain().focus().undo().run()}
@@ -256,7 +305,7 @@ export default function RichTextEditor({ content, onChange, placeholder }: RichT
         type="file"
         accept="image/*"
         className="hidden"
-        onChange={(e) => {
+        onChange={e => {
           const file = e.target.files?.[0];
           if (file) handleImageUpload(file);
           e.target.value = "";
