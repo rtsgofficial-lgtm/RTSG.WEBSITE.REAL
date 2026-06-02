@@ -218,3 +218,21 @@
     animation: none;
   }
 }
+
+/*Slow soft in and out glow animation */
+
+@keyframes soft-pulse {
+  0%, 100% {
+    opacity: 0.65;
+    text-shadow: 0 0 6px rgba(255, 255, 255, 0.15);
+  }
+
+  50% {
+    opacity: 1;
+    text-shadow: 0 0 14px rgba(255, 255, 255, 0.45);
+  }
+}
+
+.animate-soft-pulse {
+  animation: soft-pulse 4s ease-in-out infinite;
+}

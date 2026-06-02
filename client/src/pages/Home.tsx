@@ -45,7 +45,7 @@ export default function Home() {
             zIndex: 0,
             pointerEvents: "none",
             opacity: 0,
-            filter: `brightness(0.6) saturate(0.8) blur(${scrollBlur}px)`,
+            filter: `brightness(0.8) saturate(0.8) blur(${scrollBlur}px)`,
             border: "none",
             borderRadius: 0,
             display: "block",
@@ -94,9 +94,8 @@ export default function Home() {
               <span className="text-foreground">RTSG</span>
             </h1>
 
-            <p className="text-lg text-muted-foreground max-w-xl mx-auto mb-10 leading-relaxed">
-              Share research, publish articles, and engage in intelligent discourse
-              with like-minded individuals in an elegant space designed for knowledge exchange.
+           <p className="text-lg text-white/90 max-w-xl mx-auto mb-10 leading-relaxed animate-soft-pulse">
+              Primus Inter Pares
             </p>
 
             <div className="flex items-center justify-center gap-4">

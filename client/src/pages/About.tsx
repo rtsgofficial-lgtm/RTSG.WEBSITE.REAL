@@ -1,8 +1,36 @@
 import { trpc } from "@/lib/trpc";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Streamdown } from "streamdown";
+import { X, ImagePlay, Send, Newspaper } from "lucide-react";
 
 const VIDEO_SRC = "https://rs.rtsg.org/glossy-red-liquid-morphing-abstract-background-2026-01-28-03-03-51-utc_2d2a24cb.mp4";
+
+const SOCIAL_LINKS = [
+  {
+    name: "YouTube",
+    label: "YouTube",
+    href: "https://www.youtube.com/@RTSG_Main",
+    icon: ImagePlay,
+  },
+  {
+    name: "X",
+    label: "X",
+    href: "https://x.com/RTSG_Main",
+    icon: X,
+  },
+  {
+    name: "Patreon",
+    label: "Patreon",
+    href: "https://www.patreon.com/RTSG_Main",
+    icon: Send,
+  },
+  {
+    name: "Substack",
+    label: "Substack",
+    href: "https://rtsg.media",
+    icon: Newspaper,
+  },
+];
 
 export default function About() {
   const { data: page, isLoading } = trpc.pages.getBySlug.useQuery({ slug: "about" });
@@ -64,12 +92,37 @@ export default function About() {
             <Skeleton className="h-4 w-5/6 bg-white/5" />
           </div>
         ) : page ? (
-          <div className="glass rounded-2xl p-8 animate-fade-in">
-            <div className="prose prose-invert prose-sm max-w-none [&_h1]:text-3xl [&_h1]:font-bold [&_h1]:text-foreground [&_h1]:mb-4 [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:text-foreground [&_p]:text-muted-foreground [&_p]:leading-relaxed [&_a]:text-primary [&_a]:no-underline [&_a:hover]:underline [&_ul]:text-muted-foreground [&_ol]:text-muted-foreground [&_li]:text-muted-foreground">
-              <Streamdown>{page.content || ""}</Streamdown>
+            <div className="space-y-8 animate-fade-in">
+              <div className="glass rounded-2xl p-8">
+                <div className="prose prose-invert prose-sm max-w-none [&_h1]:text-3xl [&_h1]:font-bold [&_h1]:text-foreground [&_h1]:mb-4 [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:text-foreground [&_p]:text-muted-foreground [&_p]:leading-relaxed [&_a]:text-primary [&_a]:no-underline [&_a:hover]:underline [&_ul]:text-muted-foreground [&_ol]:text-muted-foreground [&_li]:text-muted-foreground">
+                  <Streamdown>{page.content || ""}</Streamdown>
+                </div>
+              </div>
+
+             <div className="flex items-center justify-center gap-8 sm:gap-12">
+                {SOCIAL_LINKS.map(({ name, label, href, icon: Icon }) => (
+                  <a
+                    key={name}
+                    href={href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={name}
+                    title={name}
+                    className="group flex flex-col items-center gap-2 text-primary hover:text-red-400 transition-all duration-300 hover:scale-110"
+                  >
+                    <Icon
+                      className="h-9 w-9 drop-shadow-[0_0_12px_rgba(239,68,68,0.35)] group-hover:drop-shadow-[0_0_18px_rgba(239,68,68,0.7)]"
+                      strokeWidth={1.8}
+                    />
+
+                    <span className="text-xs sm:text-sm uppercase tracking-[0.2em] text-white/80 group-hover:text-white animate-soft-pulse">
+                      {label}
+                    </span>
+                  </a>
+                ))}
+              </div>
             </div>
-          </div>
-        ) : (
+          ) : (
           <div className="glass rounded-2xl p-12 text-center">
             <p className="text-muted-foreground">Content not available.</p>
           </div>
