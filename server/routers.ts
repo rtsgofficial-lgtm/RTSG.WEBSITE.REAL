@@ -1,4 +1,4 @@
-import { COOKIE_NAME } from "@shared/const";
+import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, adminProcedure, router } from "./_core/trpc";
@@ -27,6 +27,49 @@ function hashPassword(password: string): string {
 
 function verifyPassword(password: string, hash: string): boolean {
   return hashPassword(password) === hash;
+}
+
+function normalizeEmail(email: string) {
+  return email.trim().toLowerCase();
+}
+
+function hashLocalPassword(password: string): string {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const hash = crypto.scryptSync(password, salt, 64).toString("hex");
+  return `scrypt:${salt}:${hash}`;
+}
+
+function verifyLocalPassword(password: string, storedHash: string): boolean {
+  const [scheme, salt, hash] = storedHash.split(":");
+
+  if (scheme !== "scrypt" || !salt || !hash) {
+    return false;
+  }
+
+  const expected = Buffer.from(hash, "hex");
+  const actual = crypto.scryptSync(password, salt, 64);
+
+  if (expected.length !== actual.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(expected, actual);
+}
+
+async function setSessionCookie(ctx: any, user: NonNullable<Awaited<ReturnType<typeof db.getUserById>>>) {
+  const sessionToken = await import("./_core/sdk").then(({ sdk }) =>
+    sdk.createSessionToken(user.openId, {
+      name: user.name || "",
+      expiresInMs: ONE_YEAR_MS,
+    })
+  );
+
+  const cookieOptions = getSessionCookieOptions(ctx.req);
+
+  ctx.res.cookie(COOKIE_NAME, sessionToken, {
+    ...cookieOptions,
+    maxAge: ONE_YEAR_MS,
+  });
 }
 
 // ─── Admin session tokens (in-memory store for server-side validation) ──────
@@ -66,13 +109,88 @@ export const appRouter = router({
   system: systemRouter,
 
   auth: router({
-    me: publicProcedure.query((opts) => opts.ctx.user),
-    logout: publicProcedure.mutation(({ ctx }) => {
-      const cookieOptions = getSessionCookieOptions(ctx.req);
-      ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
-      return { success: true } as const;
+  register: publicProcedure
+    .input(
+      z.object({
+        name: z.string().min(1).max(100),
+        email: z.string().email(),
+        password: z.string().min(8),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const email = normalizeEmail(input.email);
+
+      const existingCredential = await db.getUserCredentialByEmail(email);
+
+      if (existingCredential) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "An account with this email already exists",
+        });
+      }
+
+      let user = await db.getUserByEmail(email);
+
+      if (!user) {
+        user = await db.createLocalUser({
+          name: input.name,
+          email,
+        });
+      }
+
+      await db.createUserCredential({
+        userId: user.id,
+        email,
+        passwordHash: hashLocalPassword(input.password),
+      });
+
+      await db.updateUserLastSignedIn(user.id);
+      await setSessionCookie(ctx, user);
+
+      return { success: true, user };
     }),
+
+  login: publicProcedure
+    .input(
+      z.object({
+        email: z.string().email(),
+        password: z.string().min(1),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const email = normalizeEmail(input.email);
+      const credential = await db.getUserCredentialByEmail(email);
+
+      if (!credential || !verifyLocalPassword(input.password, credential.passwordHash)) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "Invalid email or password",
+        });
+      }
+
+      const user = await db.getUserById(credential.userId);
+
+      if (!user) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "Invalid email or password",
+        });
+      }
+
+      await db.updateUserLastSignedIn(user.id);
+      await setSessionCookie(ctx, user);
+
+      return { success: true, user };
+    }),
+
+  me: publicProcedure.query((opts) => opts.ctx.user),
+
+  logout: publicProcedure.mutation(({ ctx }) => {
+    const cookieOptions = getSessionCookieOptions(ctx.req);
+    ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+    return { success: true } as const;
   }),
+}),
 
   // ─── Admin Auth (separate username/password) ────────────────────────────
 

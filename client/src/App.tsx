@@ -19,11 +19,13 @@ import AdminDashboard from "./pages/AdminDashboard";
 import Profile from "./pages/Profile";
 import Layout from "./components/Layout";
 import UnderConstruction from "./pages/UnderConstruction";
+import Login from "./pages/Login";
 
 function AdminRouter() {
   return (
     <Switch>
       <Route path="/" component={Home} />
+      <Route path="/login" component={Login} />
       <Route path="/articles" component={Articles} />
       <Route path="/articles/new" component={ArticleNew} />
       <Route path="/articles/:id/edit" component={ArticleEdit} />
@@ -44,6 +46,7 @@ function PublicRouter() {
   return (
     <Switch>
       <Route path="/" component={Home} />
+      <Route path="/login" component={Login} />
       <Route path="/articles" component={Articles} />
       <Route path="/articles/new" component={ArticleNew} />
       <Route path="/articles/:id/edit" component={ArticleEdit} />
@@ -63,6 +66,7 @@ function PublicRouter() {
 function ConstructionRouter() {
   return (
     <Switch>
+      <Route path="/login" component={Login} />
       <Route path="/admin" component={AdminLogin} />
       <Route path="/admin/dashboard" component={AdminDashboard} />
       <Route component={UnderConstruction} />

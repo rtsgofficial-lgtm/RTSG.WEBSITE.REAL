@@ -3,6 +3,7 @@ import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser,
   users,
+  userCredentials,
   adminCredentials,
   articles,
   comments,
@@ -120,6 +121,96 @@ export async function updateUserDisplayName(userId: number, displayName: string)
   const db = await getDb();
   if (!db) return;
   await db.update(users).set({ name: displayName }).where(eq(users.id, userId));
+}
+
+function normalizeEmail(email: string) {
+  return email.trim().toLowerCase();
+}
+
+export async function getUserByEmail(email: string) {
+  const database = await getDb();
+  if (!database) return null;
+
+  const normalizedEmail = normalizeEmail(email);
+
+  const result = await database
+    .select()
+    .from(users)
+    .where(eq(users.email, normalizedEmail))
+    .limit(1);
+
+  return result[0] ?? null;
+}
+
+export async function createLocalUser(input: {
+  name: string;
+  email: string;
+}) {
+  const database = await getDb();
+  if (!database) {
+    throw new Error("Database not available");
+  }
+
+  const email = normalizeEmail(input.email);
+  const openId = `email:${email}`;
+
+  await database.insert(users).values({
+    openId,
+    name: input.name,
+    email,
+    loginMethod: "email",
+    lastSignedIn: new Date(),
+  });
+
+  const user = await getUserByOpenId(openId);
+
+  if (!user) {
+    throw new Error("Failed to create local user");
+  }
+
+  return user;
+}
+
+export async function updateUserLastSignedIn(userId: number) {
+  const database = await getDb();
+  if (!database) return;
+
+  await database
+    .update(users)
+    .set({ lastSignedIn: new Date() })
+    .where(eq(users.id, userId));
+}
+
+export async function getUserCredentialByEmail(email: string) {
+  const database = await getDb();
+  if (!database) return null;
+
+  const normalizedEmail = normalizeEmail(email);
+
+  const result = await database
+    .select()
+    .from(userCredentials)
+    .where(eq(userCredentials.email, normalizedEmail))
+    .limit(1);
+
+  return result[0] ?? null;
+}
+
+export async function createUserCredential(input: {
+  userId: number;
+  email: string;
+  passwordHash: string;
+}) {
+  const database = await getDb();
+  if (!database) {
+    throw new Error("Database not available");
+  }
+
+  await database.insert(userCredentials).values({
+    userId: input.userId,
+    email: normalizeEmail(input.email),
+    passwordHash: input.passwordHash,
+  });
 }
 
 // ─── Admin Credentials ──────────────────────────────────────────────────────
