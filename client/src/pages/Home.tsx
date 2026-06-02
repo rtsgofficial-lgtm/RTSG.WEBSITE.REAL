@@ -8,6 +8,7 @@ import { trpc } from "@/lib/trpc";
 
 export default function Home() {
 
+  const YOUTUBE_FALLBACK_IMAGE = "https://rs.rtsg.org/RTSG%20Black%20And%20White%20Grain%20ith%20colored%20logo.png";
   const [scrollBlur, setScrollBlur] = useState(0);
 
   useEffect(() => {
@@ -224,15 +225,25 @@ export default function Home() {
                 href="https://youtu.be/-XL6K1gbT-M"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex flex-col items-center justify-center gap-4 w-full rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-colors cursor-pointer"
+                className="group relative flex flex-col items-center justify-center gap-4 w-full rounded-xl overflow-hidden border border-white/10 transition-colors cursor-pointer"
                 style={{ aspectRatio: "16/9" }}
               >
-                <div className="w-16 h-16 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center">
+                <img
+                  src={YOUTUBE_FALLBACK_IMAGE}
+                  alt=""
+                  aria-hidden="true"
+                  className="absolute inset-0 w-full h-full object-cover blur-sm scale-100 opacity-40 transition-all duration-500 group-hover:opacity-75 group-hover:scale-110"
+                />
+
+                <div className="absolute inset-0 bg-black/50 group-hover:bg-black/40 transition-colors" />
+
+                <div className="relative z-10 w-16 h-16 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center">
                   <Youtube className="w-8 h-8 text-primary" />
                 </div>
-                <div className="text-center">
-                  <p className="text-sm font-medium text-foreground">Watch on YouTube</p>
-                  <p className="text-xs text-muted-foreground mt-1">@RTSG_Main</p>
+
+                <div className="relative z-10 text-center">
+                  <p className="text-sm font-medium text-white">Watch on YouTube</p>
+                  <p className="text-xs text-white/70 mt-1">@RTSG_Main</p>
                 </div>
               </a>
             )}

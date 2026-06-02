@@ -1,7 +1,7 @@
 import { trpc } from "@/lib/trpc";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Streamdown } from "streamdown";
-import { X, ImagePlay, Send, Newspaper } from "lucide-react";
+import { X, MonitorPlay, Sparkle, Newspaper } from "lucide-react";
 
 const VIDEO_SRC = "https://rs.rtsg.org/glossy-red-liquid-morphing-abstract-background-2026-01-28-03-03-51-utc_2d2a24cb.mp4";
 
@@ -10,7 +10,7 @@ const SOCIAL_LINKS = [
     name: "YouTube",
     label: "YouTube",
     href: "https://www.youtube.com/@RTSG_Main",
-    icon: ImagePlay,
+    icon: MonitorPlay,
   },
   {
     name: "X",
@@ -22,7 +22,7 @@ const SOCIAL_LINKS = [
     name: "Patreon",
     label: "Patreon",
     href: "https://www.patreon.com/RTSG_Main",
-    icon: Send,
+    icon: Sparkle,
   },
   {
     name: "Substack",
