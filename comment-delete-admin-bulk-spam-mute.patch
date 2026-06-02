@@ -1,0 +1,259 @@
+diff --git a/client/src/pages/AdminDashboard.tsx b/client/src/pages/AdminDashboard.tsx
+index 4c37507..0862e20 100644
+--- a/client/src/pages/AdminDashboard.tsx
++++ b/client/src/pages/AdminDashboard.tsx
+@@ -19,6 +19,7 @@ import {
+   Gavel,
+   Eye,
+   Settings,
++  MessageSquare,
+ } from "lucide-react";
+ import { useState, useEffect } from "react";
+ import { useLocation } from "wouter";
+@@ -163,6 +164,13 @@ function UsersPanel() {
+     },
+     onError: (err) => toast.error(err.message),
+   });
++  const deleteUserCommentsMutation = trpc.users.deleteCommentsByUser.useMutation({
++    onSuccess: (data) => {
++      refetch();
++      toast.success(`Deleted ${data.deletedCount} comment${data.deletedCount === 1 ? "" : "s"}`);
++    },
++    onError: (err) => toast.error(err.message),
++  });
+ 
+   const handleDeleteUserArticles = (userId: number, userName: string | null) => {
+     const label = userName || "this user";
+@@ -175,11 +183,18 @@ function UsersPanel() {
+     }
+   };
+ 
++  const handleDeleteUserComments = (userId: number, userName: string | null) => {
++    const label = userName || "this user";
++    if (confirm(`Delete ALL comments from ${label}? This cannot be undone.`)) {
++      deleteUserCommentsMutation.mutate({ userId });
++    }
++  };
++
+   return (
+     <div className="animate-fade-in">
+       <h2 className="text-xl font-bold text-foreground mb-4">User Management</h2>
+       <p className="text-sm text-muted-foreground mb-6">
+-        Promote or demote users, mute accounts, or delete all articles from a user.
++        Promote or demote users, mute accounts, or delete all articles/comments from a user.
+       </p>
+ 
+       <div className="glass rounded-2xl overflow-hidden">
+@@ -274,6 +289,16 @@ function UsersPanel() {
+                           <UserX className="w-3.5 h-3.5" />
+                         </Button>
+                       )}
++                      <Button
++                        variant="ghost"
++                        size="sm"
++                        onClick={() => handleDeleteUserComments(u.id, u.name)}
++                        disabled={deleteUserCommentsMutation.isPending}
++                        className="rounded-lg text-xs text-orange-400 hover:bg-orange-500/10 h-7 px-2"
++                        title="Delete all comments by this user"
++                      >
++                        <MessageSquare className="w-3.5 h-3.5" />
++                      </Button>
+                       <Button
+                         variant="ghost"
+                         size="sm"
+diff --git a/client/src/pages/ArticleDetail.tsx b/client/src/pages/ArticleDetail.tsx
+index 3b7e6e2..2e45f60 100644
+--- a/client/src/pages/ArticleDetail.tsx
++++ b/client/src/pages/ArticleDetail.tsx
+@@ -370,10 +370,15 @@ export default function ArticleDetail() {
+                         {new Date(comment.createdAt).toLocaleDateString()}
+                       </span>
+                     </div>
+-                    {isMod && (
++                    {(isMod || user?.id === comment.authorId) && (
+                       <button
+-                        onClick={() => deleteComment.mutate({ id: comment.id })}
+-                        className="text-muted-foreground hover:text-destructive transition-colors"
++                        onClick={() => {
++                          if (confirm("Delete this comment permanently?")) {
++                            deleteComment.mutate({ id: comment.id });
++                          }
++                        }}
++                        disabled={deleteComment.isPending}
++                        className="text-muted-foreground hover:text-destructive transition-colors disabled:opacity-50"
+                         title="Delete comment"
+                       >
+                         <Trash2 className="w-3.5 h-3.5" />
+diff --git a/server/db.ts b/server/db.ts
+index 68a519f..a88d6ec 100644
+--- a/server/db.ts
++++ b/server/db.ts
+@@ -461,12 +461,52 @@ export async function createComment(content: string, articleId: number, authorId
+   await db.insert(comments).values({ content, articleId, authorId });
+ }
+ 
++export async function getCommentById(commentId: number) {
++  const db = await getDb();
++  if (!db) return undefined;
++
++  const result = await db
++    .select({
++      id: comments.id,
++      content: comments.content,
++      articleId: comments.articleId,
++      authorId: comments.authorId,
++      createdAt: comments.createdAt,
++      updatedAt: comments.updatedAt,
++    })
++    .from(comments)
++    .where(eq(comments.id, commentId))
++    .limit(1);
++
++  return result.length > 0 ? result[0] : undefined;
++}
++
+ export async function deleteComment(commentId: number) {
+   const db = await getDb();
+   if (!db) return;
+   await db.delete(comments).where(eq(comments.id, commentId));
+ }
+ 
++export async function deleteCommentsByAuthor(authorId: number): Promise<number> {
++  const db = await getDb();
++  if (!db) return 0;
++
++  const userComments = await db
++    .select({ id: comments.id })
++    .from(comments)
++    .where(eq(comments.authorId, authorId));
++
++  const commentIds = userComments.map((comment) => comment.id);
++
++  if (commentIds.length === 0) {
++    return 0;
++  }
++
++  await db.delete(comments).where(inArray(comments.id, commentIds));
++
++  return commentIds.length;
++}
++
+ // ─── Site Pages ─────────────────────────────────────────────────────────────
+ 
+ export async function getPageBySlug(slug: string) {
+diff --git a/server/routers.ts b/server/routers.ts
+index 7c2673d..706aba1 100644
+--- a/server/routers.ts
++++ b/server/routers.ts
+@@ -13,6 +13,62 @@ import crypto from "crypto";
+ // ─── Role-based middleware ──────────────────────────────────────────────────
+ 
+ const ARTICLE_LIMIT_PER_USER = 50;
++const ARTICLE_SPAM_WINDOW_MS = 10 * 60 * 1000;
++const ARTICLE_SPAM_LIMIT = 5;
++const COMMENT_SPAM_WINDOW_MS = 60 * 1000;
++const COMMENT_SPAM_LIMIT = 8;
++const COMBINED_SPAM_WINDOW_MS = 5 * 60 * 1000;
++const COMBINED_SPAM_LIMIT = 15;
++
++type PostKind = "article" | "comment";
++type SpamTracker = { articleTimes: number[]; commentTimes: number[] };
++
++const postSpamTrackers = new Map<number, SpamTracker>();
++
++function trimRecent(timestamps: number[], now: number, windowMs: number) {
++  return timestamps.filter((timestamp) => now - timestamp <= windowMs);
++}
++
++async function checkSpamAndAutoMute(user: { id: number; role: "user" | "admin" | "moderator" }, kind: PostKind) {
++  if (user.role === "admin" || user.role === "moderator") {
++    return;
++  }
++
++  const now = Date.now();
++  const tracker = postSpamTrackers.get(user.id) ?? { articleTimes: [], commentTimes: [] };
++  const maxWindowMs = Math.max(ARTICLE_SPAM_WINDOW_MS, COMMENT_SPAM_WINDOW_MS, COMBINED_SPAM_WINDOW_MS);
++
++  tracker.articleTimes = trimRecent(tracker.articleTimes, now, maxWindowMs);
++  tracker.commentTimes = trimRecent(tracker.commentTimes, now, maxWindowMs);
++
++  if (kind === "article") {
++    tracker.articleTimes.push(now);
++  } else {
++    tracker.commentTimes.push(now);
++  }
++
++  const recentArticleCount = trimRecent(tracker.articleTimes, now, ARTICLE_SPAM_WINDOW_MS).length;
++  const recentCommentCount = trimRecent(tracker.commentTimes, now, COMMENT_SPAM_WINDOW_MS).length;
++  const recentCombinedCount =
++    trimRecent(tracker.articleTimes, now, COMBINED_SPAM_WINDOW_MS).length +
++    trimRecent(tracker.commentTimes, now, COMBINED_SPAM_WINDOW_MS).length;
++
++  postSpamTrackers.set(user.id, tracker);
++
++  const isSpamming =
++    recentArticleCount > ARTICLE_SPAM_LIMIT ||
++    recentCommentCount > COMMENT_SPAM_LIMIT ||
++    recentCombinedCount > COMBINED_SPAM_LIMIT;
++
++  if (isSpamming) {
++    postSpamTrackers.delete(user.id);
++    await db.muteUser(user.id);
++    throw new TRPCError({
++      code: "FORBIDDEN",
++      message: "Your account was automatically muted because it posted too frequently. Please contact an admin if this was a mistake.",
++    });
++  }
++}
+ 
+ const modProcedure = protectedProcedure.use(({ ctx, next }) => {
+   if (ctx.user.role !== "admin" && ctx.user.role !== "moderator") {
+@@ -281,6 +337,12 @@ export const appRouter = router({
+         const deletedCount = await db.deleteArticlesByAuthor(input.userId);
+         return { success: true, deletedCount };
+       }),
++    deleteCommentsByUser: dashboardProcedure
++      .input(z.object({ userId: z.number() }))
++      .mutation(async ({ input }) => {
++        const deletedCount = await db.deleteCommentsByAuthor(input.userId);
++        return { success: true, deletedCount };
++      }),
+     updateDisplayName: protectedProcedure
+       .input(z.object({ displayName: z.string().min(1).max(100) }))
+       .mutation(async ({ input, ctx }) => {
+@@ -328,6 +390,8 @@ export const appRouter = router({
+           throw new TRPCError({ code: "FORBIDDEN", message: "Your account is muted and cannot create articles" });
+         }
+ 
++        await checkSpamAndAutoMute(ctx.user, "article");
++
+         if (ctx.user.role !== "admin") {
+           const currentArticleCount = await db.countArticlesByAuthor(ctx.user.id);
+           if (currentArticleCount >= ARTICLE_LIMIT_PER_USER) {
+@@ -429,10 +493,25 @@ export const appRouter = router({
+         if (isMuted) {
+           throw new TRPCError({ code: "FORBIDDEN", message: "Your account is muted and cannot create comments" });
+         }
++        await checkSpamAndAutoMute(ctx.user, "comment");
+         await db.createComment(input.content, input.articleId, ctx.user.id);
+         return { success: true };
+       }),
+-    delete: modProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
++    delete: publicProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
++      const comment = await db.getCommentById(input.id);
++      if (!comment) {
++        throw new TRPCError({ code: "NOT_FOUND", message: "Comment not found" });
++      }
++
++      const authHeader = ctx.req.headers["x-admin-token"] as string | undefined;
++      const isDashboardAdmin = validateAdminToken(authHeader);
++      const isOwner = ctx.user?.id === comment.authorId;
++      const isStaff = ctx.user?.role === "admin" || ctx.user?.role === "moderator";
++
++      if (!isDashboardAdmin && !isOwner && !isStaff) {
++        throw new TRPCError({ code: "FORBIDDEN", message: "You can only delete your own comments" });
++      }
++
+       await db.deleteComment(input.id);
+       return { success: true };
+     }),

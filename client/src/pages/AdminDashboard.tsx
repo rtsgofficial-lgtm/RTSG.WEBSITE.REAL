@@ -19,6 +19,7 @@ import {
   Gavel,
   Eye,
   Settings,
+  MessageSquare,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
@@ -156,12 +157,44 @@ function UsersPanel() {
     onSuccess: () => { refetch(); toast.success("User unmuted"); },
     onError: (err) => toast.error(err.message),
   });
+  const deleteUserArticlesMutation = trpc.users.deleteArticlesByUser.useMutation({
+    onSuccess: (data) => {
+      refetch();
+      toast.success(`Deleted ${data.deletedCount} article${data.deletedCount === 1 ? "" : "s"}`);
+    },
+    onError: (err) => toast.error(err.message),
+  });
+  const deleteUserCommentsMutation = trpc.users.deleteCommentsByUser.useMutation({
+    onSuccess: (data) => {
+      refetch();
+      toast.success(`Deleted ${data.deletedCount} comment${data.deletedCount === 1 ? "" : "s"}`);
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const handleDeleteUserArticles = (userId: number, userName: string | null) => {
+    const label = userName || "this user";
+    if (
+      confirm(
+        `Delete ALL articles from ${label}? This also deletes comments on those articles and cannot be undone.`,
+      )
+    ) {
+      deleteUserArticlesMutation.mutate({ userId });
+    }
+  };
+
+  const handleDeleteUserComments = (userId: number, userName: string | null) => {
+    const label = userName || "this user";
+    if (confirm(`Delete ALL comments from ${label}? This cannot be undone.`)) {
+      deleteUserCommentsMutation.mutate({ userId });
+    }
+  };
 
   return (
     <div className="animate-fade-in">
       <h2 className="text-xl font-bold text-foreground mb-4">User Management</h2>
       <p className="text-sm text-muted-foreground mb-6">
-        Promote or demote users to admin or moderator roles.
+        Promote or demote users, mute accounts, or delete all articles/comments from a user.
       </p>
 
       <div className="glass rounded-2xl overflow-hidden">
@@ -256,6 +289,26 @@ function UsersPanel() {
                           <UserX className="w-3.5 h-3.5" />
                         </Button>
                       )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDeleteUserComments(u.id, u.name)}
+                        disabled={deleteUserCommentsMutation.isPending}
+                        className="rounded-lg text-xs text-orange-400 hover:bg-orange-500/10 h-7 px-2"
+                        title="Delete all comments by this user"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDeleteUserArticles(u.id, u.name)}
+                        disabled={deleteUserArticlesMutation.isPending}
+                        className="rounded-lg text-xs text-destructive hover:bg-destructive/10 h-7 px-2"
+                        title="Delete all articles by this user"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
                     </div>
                   </td>
                 </tr>
@@ -520,13 +573,33 @@ function ArticlesPanel() {
 
 // Settings Panel Component
 function SettingsPanel({ token }: { token: string }) {
-  const { data: settingsData, isLoading } = trpc.settings.getConstructionMode.useQuery();
+  const { data: settingsData, isLoading: constructionLoading } = trpc.settings.getConstructionMode.useQuery();
+  const { data: popupData, isLoading: popupLoading, refetch: refetchPopup } = trpc.settings.getHomepagePopup.useQuery();
+  const [popupEnabled, setPopupEnabled] = useState(false);
+  const [popupMessage, setPopupMessage] = useState("");
+
+  useEffect(() => {
+    if (!popupData) return;
+    setPopupEnabled(popupData.enabled);
+    setPopupMessage(popupData.message);
+  }, [popupData]);
+
   const setConstructionMode = trpc.settings.setConstructionMode.useMutation({
     onSuccess: () => {
       toast.success("Site settings updated");
     },
     onError: () => {
       toast.error("Failed to update settings");
+    },
+  });
+
+  const setHomepagePopup = trpc.settings.setHomepagePopup.useMutation({
+    onSuccess: () => {
+      refetchPopup();
+      toast.success("Homepage popup settings saved");
+    },
+    onError: (err) => {
+      toast.error(err.message || "Failed to save homepage popup settings");
     },
   });
 
@@ -544,7 +617,14 @@ function SettingsPanel({ token }: { token: string }) {
     );
   };
 
-  if (isLoading) {
+  const handleSaveHomepagePopup = () => {
+    setHomepagePopup.mutate({
+      enabled: popupEnabled,
+      message: popupMessage,
+    });
+  };
+
+  if (constructionLoading || popupLoading) {
     return (
       <div className="glass rounded-2xl p-8 text-center">
         <div className="w-8 h-8 border-2 border-primary/30 border-t-primary rounded-full animate-spin mx-auto" />
@@ -587,6 +667,62 @@ function SettingsPanel({ token }: { token: string }) {
               "Enable Construction"
             )}
           </Button>
+        </div>
+
+        {/* Homepage Popup */}
+        <div className="p-4 rounded-xl bg-white/5 border border-white/10">
+          <div className="flex flex-col gap-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="font-semibold text-foreground mb-1">Homepage Popup Message</h3>
+                <p className="text-sm text-muted-foreground">
+                  Show a dismissible popup over the homepage with a blurred background. Leave the message empty to prevent it from appearing.
+                </p>
+              </div>
+              <label className="flex items-center gap-2 rounded-lg bg-black/20 px-3 py-2 text-sm text-foreground cursor-pointer border border-white/10 shrink-0">
+                <input
+                  type="checkbox"
+                  checked={popupEnabled}
+                  onChange={(e) => setPopupEnabled(e.target.checked)}
+                  className="accent-primary"
+                />
+                Enabled
+              </label>
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2 block">
+                Popup Message
+              </label>
+              <textarea
+                value={popupMessage}
+                onChange={(e) => setPopupMessage(e.target.value)}
+                rows={6}
+                maxLength={2000}
+                placeholder="Write the announcement or warning users should see when they visit the homepage..."
+                className="w-full px-4 py-3 rounded-xl bg-black/20 border border-white/10 text-foreground text-sm focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30 transition-all resize-none"
+              />
+              <div className="flex items-center justify-between mt-2 text-xs text-muted-foreground">
+                <span>
+                  Current status: <strong className={popupEnabled && popupMessage.trim() ? "text-green-400" : "text-yellow-400"}>
+                    {popupEnabled && popupMessage.trim() ? "Visible on homepage" : "Hidden"}
+                  </strong>
+                </span>
+                <span>{popupMessage.length}/2000</span>
+              </div>
+            </div>
+
+            <div className="flex justify-end">
+              <Button
+                onClick={handleSaveHomepagePopup}
+                disabled={setHomepagePopup.isPending}
+                className="rounded-xl gap-2 bg-primary hover:bg-primary/90 text-primary-foreground transition-transform duration-150 active:scale-[0.97]"
+              >
+                <Save className="w-4 h-4" />
+                {setHomepagePopup.isPending ? "Saving..." : "Save Popup Settings"}
+              </Button>
+            </div>
+          </div>
         </div>
 
         {/* Status Indicator */}

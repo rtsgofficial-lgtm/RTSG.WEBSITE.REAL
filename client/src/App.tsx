@@ -6,6 +6,9 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { useAuth } from "./_core/hooks/useAuth";
 import { trpc } from "./lib/trpc";
+import { useState } from "react";
+import { X, Zap } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import Home from "./pages/Home";
 import Articles from "./pages/Articles";
 import ArticleNew from "./pages/ArticleNew";
@@ -20,6 +23,7 @@ import Profile from "./pages/Profile";
 import Layout from "./components/Layout";
 import UnderConstruction from "./pages/UnderConstruction";
 import Login from "./pages/Login";
+
 
 function AdminRouter() {
   return (
@@ -106,12 +110,63 @@ function AppRouter() {
   return <PublicRouter />;
 }
 
+function SiteWidePopup() {
+  const { data: popup } = trpc.settings.getHomepagePopup.useQuery(undefined, {
+    staleTime: 60 * 1000,
+  });
+
+  const [dismissed, setDismissed] = useState(false);
+
+  const message = popup?.message?.trim() || "";
+
+  const shouldShowPopup =
+    Boolean(popup?.enabled && message) && !dismissed;
+
+  if (!shouldShowPopup) return null;
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-md px-4">
+      <div className="glass relative w-full max-w-xl rounded-3xl border border-white/10 p-7 text-center shadow-2xl animate-fade-in">
+        <button
+          type="button"
+          onClick={() => setDismissed(true)}
+          className="absolute right-4 top-4 rounded-full p-2 text-muted-foreground hover:bg-white/10 hover:text-foreground transition-colors"
+          aria-label="Close site message"
+        >
+          <X className="w-4 h-4" />
+        </button>
+
+        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full glass-red text-xs font-medium text-primary mb-5">
+          <Zap className="w-3 h-3" />
+          RTSG Notice
+        </div>
+
+        <h2 className="text-2xl font-bold text-foreground mb-4">
+          Message from RTSG
+        </h2>
+
+        <p className="text-sm sm:text-base text-muted-foreground leading-relaxed whitespace-pre-wrap mb-6">
+          {message}
+        </p>
+
+        <Button
+          onClick={() => setDismissed(true)}
+          className="rounded-xl px-6 bg-primary hover:bg-primary/90 text-primary-foreground"
+        >
+          Continue
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function App() {
   return (
     <ErrorBoundary>
       <ThemeProvider defaultTheme="dark">
         <TooltipProvider>
           <Toaster />
+          <SiteWidePopup />
           <Layout>
             <AppRouter />
           </Layout>

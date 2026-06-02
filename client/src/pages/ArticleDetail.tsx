@@ -140,6 +140,9 @@ export default function ArticleDetail() {
     return null;
   };
 
+  const canEditArticle = user?.id === article.authorId || user?.role === "admin";
+  const shouldShowOwnerDelete = user?.id === article.authorId && !isMod;
+
   return (
     <div className="container max-w-3xl mx-auto py-12">
       <div className="animate-fade-in">
@@ -222,7 +225,7 @@ export default function ArticleDetail() {
             />
 
             {/* Author/Admin Actions */}
-            {(user?.id === article.authorId || user?.role === "admin") && (
+            {canEditArticle && (
               <div className="mt-8 pt-6 border-t border-white/5 flex flex-wrap gap-2">
                 <Button
                   variant="ghost"
@@ -233,6 +236,22 @@ export default function ArticleDetail() {
                   <Edit className="w-3.5 h-3.5" />
                   Edit
                 </Button>
+                {shouldShowOwnerDelete && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      if (confirm("Delete this article permanently?")) {
+                        deleteArticle.mutate({ id: articleId });
+                      }
+                    }}
+                    className="glitch-hover rounded-lg text-xs gap-1 text-destructive hover:text-destructive"
+                    disabled={deleteArticle.isPending}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Delete
+                  </Button>
+                )}
               </div>
             )}
 
@@ -351,10 +370,15 @@ export default function ArticleDetail() {
                         {new Date(comment.createdAt).toLocaleDateString()}
                       </span>
                     </div>
-                    {isMod && (
+                    {(isMod || user?.id === comment.authorId) && (
                       <button
-                        onClick={() => deleteComment.mutate({ id: comment.id })}
-                        className="text-muted-foreground hover:text-destructive transition-colors"
+                        onClick={() => {
+                          if (confirm("Delete this comment permanently?")) {
+                            deleteComment.mutate({ id: comment.id });
+                          }
+                        }}
+                        disabled={deleteComment.isPending}
+                        className="text-muted-foreground hover:text-destructive transition-colors disabled:opacity-50"
                         title="Delete comment"
                       >
                         <Trash2 className="w-3.5 h-3.5" />

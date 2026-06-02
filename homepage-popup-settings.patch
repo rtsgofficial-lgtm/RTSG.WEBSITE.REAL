@@ -1,0 +1,215 @@
+diff --git a/client/src/pages/AdminDashboard.tsx b/client/src/pages/AdminDashboard.tsx
+index d5fd427..e5207f4 100644
+--- a/client/src/pages/AdminDashboard.tsx
++++ b/client/src/pages/AdminDashboard.tsx
+@@ -520,7 +520,17 @@ function ArticlesPanel() {
+ 
+ // Settings Panel Component
+ function SettingsPanel({ token }: { token: string }) {
+-  const { data: settingsData, isLoading } = trpc.settings.getConstructionMode.useQuery();
++  const { data: settingsData, isLoading: constructionLoading } = trpc.settings.getConstructionMode.useQuery();
++  const { data: popupData, isLoading: popupLoading, refetch: refetchPopup } = trpc.settings.getHomepagePopup.useQuery();
++  const [popupEnabled, setPopupEnabled] = useState(false);
++  const [popupMessage, setPopupMessage] = useState("");
++
++  useEffect(() => {
++    if (!popupData) return;
++    setPopupEnabled(popupData.enabled);
++    setPopupMessage(popupData.message);
++  }, [popupData]);
++
+   const setConstructionMode = trpc.settings.setConstructionMode.useMutation({
+     onSuccess: () => {
+       toast.success("Site settings updated");
+@@ -530,6 +540,16 @@ function SettingsPanel({ token }: { token: string }) {
+     },
+   });
+ 
++  const setHomepagePopup = trpc.settings.setHomepagePopup.useMutation({
++    onSuccess: () => {
++      refetchPopup();
++      toast.success("Homepage popup settings saved");
++    },
++    onError: (err) => {
++      toast.error(err.message || "Failed to save homepage popup settings");
++    },
++  });
++
+   const isUnderConstruction = settingsData?.isUnderConstruction ?? true;
+ 
+   const handleToggleConstruction = () => {
+@@ -544,7 +564,14 @@ function SettingsPanel({ token }: { token: string }) {
+     );
+   };
+ 
+-  if (isLoading) {
++  const handleSaveHomepagePopup = () => {
++    setHomepagePopup.mutate({
++      enabled: popupEnabled,
++      message: popupMessage,
++    });
++  };
++
++  if (constructionLoading || popupLoading) {
+     return (
+       <div className="glass rounded-2xl p-8 text-center">
+         <div className="w-8 h-8 border-2 border-primary/30 border-t-primary rounded-full animate-spin mx-auto" />
+@@ -589,6 +616,62 @@ function SettingsPanel({ token }: { token: string }) {
+           </Button>
+         </div>
+ 
++        {/* Homepage Popup */}
++        <div className="p-4 rounded-xl bg-white/5 border border-white/10">
++          <div className="flex flex-col gap-4">
++            <div className="flex items-start justify-between gap-4">
++              <div>
++                <h3 className="font-semibold text-foreground mb-1">Homepage Popup Message</h3>
++                <p className="text-sm text-muted-foreground">
++                  Show a dismissible popup over the homepage with a blurred background. Leave the message empty to prevent it from appearing.
++                </p>
++              </div>
++              <label className="flex items-center gap-2 rounded-lg bg-black/20 px-3 py-2 text-sm text-foreground cursor-pointer border border-white/10 shrink-0">
++                <input
++                  type="checkbox"
++                  checked={popupEnabled}
++                  onChange={(e) => setPopupEnabled(e.target.checked)}
++                  className="accent-primary"
++                />
++                Enabled
++              </label>
++            </div>
++
++            <div>
++              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2 block">
++                Popup Message
++              </label>
++              <textarea
++                value={popupMessage}
++                onChange={(e) => setPopupMessage(e.target.value)}
++                rows={6}
++                maxLength={2000}
++                placeholder="Write the announcement or warning users should see when they visit the homepage..."
++                className="w-full px-4 py-3 rounded-xl bg-black/20 border border-white/10 text-foreground text-sm focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30 transition-all resize-none"
++              />
++              <div className="flex items-center justify-between mt-2 text-xs text-muted-foreground">
++                <span>
++                  Current status: <strong className={popupEnabled && popupMessage.trim() ? "text-green-400" : "text-yellow-400"}>
++                    {popupEnabled && popupMessage.trim() ? "Visible on homepage" : "Hidden"}
++                  </strong>
++                </span>
++                <span>{popupMessage.length}/2000</span>
++              </div>
++            </div>
++
++            <div className="flex justify-end">
++              <Button
++                onClick={handleSaveHomepagePopup}
++                disabled={setHomepagePopup.isPending}
++                className="rounded-xl gap-2 bg-primary hover:bg-primary/90 text-primary-foreground transition-transform duration-150 active:scale-[0.97]"
++              >
++                <Save className="w-4 h-4" />
++                {setHomepagePopup.isPending ? "Saving..." : "Save Popup Settings"}
++              </Button>
++            </div>
++          </div>
++        </div>
++
+         {/* Status Indicator */}
+         <div className="p-4 rounded-xl bg-primary/5 border border-primary/20">
+           <div className="flex items-center gap-2 text-sm text-foreground">
+diff --git a/client/src/pages/Home.tsx b/client/src/pages/Home.tsx
+index d9adc8f..ac157e9 100644
+--- a/client/src/pages/Home.tsx
++++ b/client/src/pages/Home.tsx
+@@ -1,5 +1,5 @@
+ import { Link } from "wouter";
+-import { ArrowRight, PenLine, Users, Zap, Youtube, ExternalLink } from "lucide-react";
++import { ArrowRight, PenLine, Users, Zap, Youtube, ExternalLink, X } from "lucide-react";
+ import { Button } from "@/components/ui/button";
+ import { Skeleton } from "@/components/ui/skeleton";
+ import { useState, useEffect } from "react";
+@@ -25,8 +25,47 @@ export default function Home() {
+     retry: 1,
+   });
+ 
++  const { data: homepagePopup } = trpc.settings.getHomepagePopup.useQuery(undefined, {
++    staleTime: 60 * 1000,
++  });
++  const [isHomepagePopupDismissed, setIsHomepagePopupDismissed] = useState(false);
++  const homepagePopupMessage = homepagePopup?.message?.trim() || "";
++  const shouldShowHomepagePopup =
++    Boolean(homepagePopup?.enabled && homepagePopupMessage) && !isHomepagePopupDismissed;
++
+   return (
+     <div className="min-h-[80vh] flex flex-col">
++      {shouldShowHomepagePopup && (
++        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-md px-4">
++          <div className="glass relative w-full max-w-xl rounded-3xl border border-white/10 p-7 text-center shadow-2xl animate-fade-in">
++            <button
++              type="button"
++              onClick={() => setIsHomepagePopupDismissed(true)}
++              className="absolute right-4 top-4 rounded-full p-2 text-muted-foreground hover:bg-white/10 hover:text-foreground transition-colors"
++              aria-label="Close homepage message"
++            >
++              <X className="w-4 h-4" />
++            </button>
++
++            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full glass-red text-xs font-medium text-primary mb-5">
++              <Zap className="w-3 h-3" />
++              RTSG Notice
++            </div>
++
++            <h2 className="text-2xl font-bold text-foreground mb-4">Message from RTSG</h2>
++            <p className="text-sm sm:text-base text-muted-foreground leading-relaxed whitespace-pre-wrap mb-6">
++              {homepagePopup?.message}
++            </p>
++
++            <Button
++              onClick={() => setIsHomepagePopupDismissed(true)}
++              className="rounded-xl px-6 bg-primary hover:bg-primary/90 text-primary-foreground"
++            >
++              Continue
++            </Button>
++          </div>
++        </div>
++      )}
+       {/* Hero Section */}
+       <section className="flex-1 flex items-center justify-center py-20 relative overflow-hidden">
+         {/* Background Video — ambient, behind everything */}
+diff --git a/server/routers.ts b/server/routers.ts
+index c160f35..968eb63 100644
+--- a/server/routers.ts
++++ b/server/routers.ts
+@@ -490,6 +490,32 @@ export const appRouter = router({
+       .input(z.object({ url: z.string().url().includes("youtube").or(z.string().url().includes("youtu.be")).or(z.literal("")) }))
+       .mutation(async ({ input }) => {
+         await db.setSetting("featuredVideoUrl", input.url);
++        return { success: true };
++      }),
++    getHomepagePopup: publicProcedure.query(async () => {
++      const [enabled, message] = await Promise.all([
++        db.getSetting("homepagePopupEnabled"),
++        db.getSetting("homepagePopupMessage"),
++      ]);
++
++      return {
++        enabled: enabled === "true",
++        message: message || "",
++      };
++    }),
++    setHomepagePopup: dashboardProcedure
++      .input(
++        z.object({
++          enabled: z.boolean(),
++          message: z.string().max(2000, "Popup message must be 2,000 characters or fewer"),
++        })
++      )
++      .mutation(async ({ input }) => {
++        await Promise.all([
++          db.setSetting("homepagePopupEnabled", input.enabled ? "true" : "false"),
++          db.setSetting("homepagePopupMessage", input.message),
++        ]);
++
+         return { success: true };
+       }),
+   }),

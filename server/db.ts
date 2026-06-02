@@ -1,4 +1,4 @@
-import { eq, desc, and, sql, or, like, asc } from "drizzle-orm";
+import { eq, desc, and, sql, or, like, asc, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser,
@@ -359,6 +359,39 @@ export async function deleteArticle(articleId: number) {
   await db.delete(articles).where(eq(articles.id, articleId));
 }
 
+export async function countArticlesByAuthor(authorId: number): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+
+  const result = await db
+    .select({ count: sql<number>`COUNT(*)` })
+    .from(articles)
+    .where(eq(articles.authorId, authorId));
+
+  return Number(result[0]?.count ?? 0);
+}
+
+export async function deleteArticlesByAuthor(authorId: number): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+
+  const userArticles = await db
+    .select({ id: articles.id })
+    .from(articles)
+    .where(eq(articles.authorId, authorId));
+
+  const articleIds = userArticles.map((article) => article.id);
+
+  if (articleIds.length === 0) {
+    return 0;
+  }
+
+  await db.delete(comments).where(inArray(comments.articleId, articleIds));
+  await db.delete(articles).where(inArray(articles.id, articleIds));
+
+  return articleIds.length;
+}
+
 export async function togglePinArticle(articleId: number, isPinned: boolean) {
   const db = await getDb();
   if (!db) return;
@@ -428,10 +461,50 @@ export async function createComment(content: string, articleId: number, authorId
   await db.insert(comments).values({ content, articleId, authorId });
 }
 
+export async function getCommentById(commentId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  const result = await db
+    .select({
+      id: comments.id,
+      content: comments.content,
+      articleId: comments.articleId,
+      authorId: comments.authorId,
+      createdAt: comments.createdAt,
+      updatedAt: comments.updatedAt,
+    })
+    .from(comments)
+    .where(eq(comments.id, commentId))
+    .limit(1);
+
+  return result.length > 0 ? result[0] : undefined;
+}
+
 export async function deleteComment(commentId: number) {
   const db = await getDb();
   if (!db) return;
   await db.delete(comments).where(eq(comments.id, commentId));
+}
+
+export async function deleteCommentsByAuthor(authorId: number): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+
+  const userComments = await db
+    .select({ id: comments.id })
+    .from(comments)
+    .where(eq(comments.authorId, authorId));
+
+  const commentIds = userComments.map((comment) => comment.id);
+
+  if (commentIds.length === 0) {
+    return 0;
+  }
+
+  await db.delete(comments).where(inArray(comments.id, commentIds));
+
+  return commentIds.length;
 }
 
 // ─── Site Pages ─────────────────────────────────────────────────────────────

@@ -12,8 +12,9 @@ import {
   Camera,
   Eye,
   MessageSquare,
+  Trash2,
 } from "lucide-react";
-import { useLocation, Link } from "wouter";
+import { useLocation } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { useRef, useState } from "react";
@@ -36,10 +37,19 @@ export default function Profile() {
   });
 
   // Fetch user's articles
-  const { data: myArticles, isLoading: articlesLoading } = trpc.articles.getByAuthor.useQuery(
+  const { data: myArticles, isLoading: articlesLoading, refetch: refetchMyArticles } = trpc.articles.getByAuthor.useQuery(
     { authorId: user?.id || 0 },
     { enabled: !!user?.id }
   );
+
+  const deleteArticle = trpc.articles.delete.useMutation({
+    onSuccess: () => {
+      toast.success("Article deleted");
+      refetchMyArticles();
+      utils.articles.getUserDrafts.invalidate();
+    },
+    onError: (err) => toast.error(err.message),
+  });
 
   const handleAvatarUpload = async (file: File) => {
     if (file.size > 5 * 1024 * 1024) {
@@ -249,26 +259,43 @@ export default function Profile() {
           ) : (
             <div className="space-y-3">
               {myArticles.map((article: any) => (
-                <Link key={article.id} href={`/articles/${article.id}`}>
-                  <div className="flex items-center justify-between p-4 rounded-xl bg-white/[0.02] border border-white/5 hover:border-primary/20 hover:bg-white/[0.04] transition-all cursor-pointer group">
-                    <div className="flex-1 min-w-0">
-                      <h3 className="text-sm font-medium text-foreground truncate group-hover:text-primary transition-colors">
-                        {article.title}
-                      </h3>
-                      <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-                        <span>{new Date(article.createdAt).toLocaleDateString()}</span>
-                        <span className="flex items-center gap-1">
-                          <Eye className="w-3 h-3" />
-                          {article.viewCount}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <MessageSquare className="w-3 h-3" />
-                          {article.commentCount}
-                        </span>
-                      </div>
+                <div
+                  key={article.id}
+                  onClick={() => navigate(`/articles/${article.id}`)}
+                  className="flex items-center justify-between p-4 rounded-xl bg-white/[0.02] border border-white/5 hover:border-primary/20 hover:bg-white/[0.04] transition-all cursor-pointer group"
+                >
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-sm font-medium text-foreground truncate group-hover:text-primary transition-colors">
+                      {article.title}
+                    </h3>
+                    <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                      <span>{new Date(article.createdAt).toLocaleDateString()}</span>
+                      <span className="flex items-center gap-1">
+                        <Eye className="w-3 h-3" />
+                        {article.viewCount}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <MessageSquare className="w-3 h-3" />
+                        {article.commentCount}
+                      </span>
                     </div>
                   </div>
-                </Link>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (confirm(`Delete article "${article.title}" permanently?`)) {
+                        deleteArticle.mutate({ id: article.id });
+                      }
+                    }}
+                    className="ml-4 rounded-lg h-8 w-8 p-0 text-destructive hover:bg-destructive/10 opacity-70 group-hover:opacity-100"
+                    title="Delete article"
+                    disabled={deleteArticle.isPending}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </div>
               ))}
             </div>
           )}
@@ -295,6 +322,14 @@ function MyDraftsSection({ userId }: { userId: number }) {
   const publishDraft = trpc.articles.publishDraft.useMutation({
     onSuccess: () => {
       toast.success("Article published!");
+      utils.articles.getUserDrafts.invalidate();
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const deleteDraft = trpc.articles.delete.useMutation({
+    onSuccess: () => {
+      toast.success("Draft deleted");
       utils.articles.getUserDrafts.invalidate();
     },
     onError: (err) => toast.error(err.message),
@@ -345,6 +380,20 @@ function MyDraftsSection({ userId }: { userId: number }) {
               disabled={publishDraft.isPending}
             >
               Publish
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                if (confirm(`Delete draft "${draft.title}" permanently?`)) {
+                  deleteDraft.mutate({ id: draft.id });
+                }
+              }}
+              className="rounded-lg h-8 w-8 p-0 text-destructive hover:bg-destructive/10"
+              title="Delete draft"
+              disabled={deleteDraft.isPending}
+            >
+              <Trash2 className="w-4 h-4" />
             </Button>
           </div>
         </div>

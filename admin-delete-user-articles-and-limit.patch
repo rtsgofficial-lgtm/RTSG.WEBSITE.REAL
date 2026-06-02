@@ -1,0 +1,147 @@
+diff --git a/client/src/pages/AdminDashboard.tsx b/client/src/pages/AdminDashboard.tsx
+index d5fd427..4c37507 100644
+--- a/client/src/pages/AdminDashboard.tsx
++++ b/client/src/pages/AdminDashboard.tsx
+@@ -156,12 +156,30 @@ function UsersPanel() {
+     onSuccess: () => { refetch(); toast.success("User unmuted"); },
+     onError: (err) => toast.error(err.message),
+   });
++  const deleteUserArticlesMutation = trpc.users.deleteArticlesByUser.useMutation({
++    onSuccess: (data) => {
++      refetch();
++      toast.success(`Deleted ${data.deletedCount} article${data.deletedCount === 1 ? "" : "s"}`);
++    },
++    onError: (err) => toast.error(err.message),
++  });
++
++  const handleDeleteUserArticles = (userId: number, userName: string | null) => {
++    const label = userName || "this user";
++    if (
++      confirm(
++        `Delete ALL articles from ${label}? This also deletes comments on those articles and cannot be undone.`,
++      )
++    ) {
++      deleteUserArticlesMutation.mutate({ userId });
++    }
++  };
+ 
+   return (
+     <div className="animate-fade-in">
+       <h2 className="text-xl font-bold text-foreground mb-4">User Management</h2>
+       <p className="text-sm text-muted-foreground mb-6">
+-        Promote or demote users to admin or moderator roles.
++        Promote or demote users, mute accounts, or delete all articles from a user.
+       </p>
+ 
+       <div className="glass rounded-2xl overflow-hidden">
+@@ -256,6 +274,16 @@ function UsersPanel() {
+                           <UserX className="w-3.5 h-3.5" />
+                         </Button>
+                       )}
++                      <Button
++                        variant="ghost"
++                        size="sm"
++                        onClick={() => handleDeleteUserArticles(u.id, u.name)}
++                        disabled={deleteUserArticlesMutation.isPending}
++                        className="rounded-lg text-xs text-destructive hover:bg-destructive/10 h-7 px-2"
++                        title="Delete all articles by this user"
++                      >
++                        <Trash2 className="w-3.5 h-3.5" />
++                      </Button>
+                     </div>
+                   </td>
+                 </tr>
+diff --git a/server/db.ts b/server/db.ts
+index 9c8225a..68a519f 100644
+--- a/server/db.ts
++++ b/server/db.ts
+@@ -1,4 +1,4 @@
+-import { eq, desc, and, sql, or, like, asc } from "drizzle-orm";
++import { eq, desc, and, sql, or, like, asc, inArray } from "drizzle-orm";
+ import { drizzle } from "drizzle-orm/mysql2";
+ import {
+   InsertUser,
+@@ -359,6 +359,39 @@ export async function deleteArticle(articleId: number) {
+   await db.delete(articles).where(eq(articles.id, articleId));
+ }
+ 
++export async function countArticlesByAuthor(authorId: number): Promise<number> {
++  const db = await getDb();
++  if (!db) return 0;
++
++  const result = await db
++    .select({ count: sql<number>`COUNT(*)` })
++    .from(articles)
++    .where(eq(articles.authorId, authorId));
++
++  return Number(result[0]?.count ?? 0);
++}
++
++export async function deleteArticlesByAuthor(authorId: number): Promise<number> {
++  const db = await getDb();
++  if (!db) return 0;
++
++  const userArticles = await db
++    .select({ id: articles.id })
++    .from(articles)
++    .where(eq(articles.authorId, authorId));
++
++  const articleIds = userArticles.map((article) => article.id);
++
++  if (articleIds.length === 0) {
++    return 0;
++  }
++
++  await db.delete(comments).where(inArray(comments.articleId, articleIds));
++  await db.delete(articles).where(inArray(articles.id, articleIds));
++
++  return articleIds.length;
++}
++
+ export async function togglePinArticle(articleId: number, isPinned: boolean) {
+   const db = await getDb();
+   if (!db) return;
+diff --git a/server/routers.ts b/server/routers.ts
+index c160f35..0119810 100644
+--- a/server/routers.ts
++++ b/server/routers.ts
+@@ -12,6 +12,8 @@ import crypto from "crypto";
+ 
+ // ─── Role-based middleware ──────────────────────────────────────────────────
+ 
++const ARTICLE_LIMIT_PER_USER = 50;
++
+ const modProcedure = protectedProcedure.use(({ ctx, next }) => {
+   if (ctx.user.role !== "admin" && ctx.user.role !== "moderator") {
+     throw new TRPCError({ code: "FORBIDDEN", message: "Moderator access required" });
+@@ -273,6 +275,12 @@ export const appRouter = router({
+         await db.unmuteUser(input.userId);
+         return { success: true };
+       }),
++    deleteArticlesByUser: dashboardProcedure
++      .input(z.object({ userId: z.number() }))
++      .mutation(async ({ input }) => {
++        const deletedCount = await db.deleteArticlesByAuthor(input.userId);
++        return { success: true, deletedCount };
++      }),
+     updateDisplayName: protectedProcedure
+       .input(z.object({ displayName: z.string().min(1).max(100) }))
+       .mutation(async ({ input, ctx }) => {
+@@ -319,6 +327,17 @@ export const appRouter = router({
+         if (isMuted) {
+           throw new TRPCError({ code: "FORBIDDEN", message: "Your account is muted and cannot create articles" });
+         }
++
++        if (ctx.user.role !== "admin") {
++          const currentArticleCount = await db.countArticlesByAuthor(ctx.user.id);
++          if (currentArticleCount >= ARTICLE_LIMIT_PER_USER) {
++            throw new TRPCError({
++              code: "FORBIDDEN",
++              message: `Article limit reached. Each user can create up to ${ARTICLE_LIMIT_PER_USER} articles.`,
++            });
++          }
++        }
++
+         const articleId = await db.createArticle(
+           input.title,
+           input.content,

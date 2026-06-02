@@ -12,6 +12,64 @@ import crypto from "crypto";
 
 // ─── Role-based middleware ──────────────────────────────────────────────────
 
+const ARTICLE_LIMIT_PER_USER = 50;
+const ARTICLE_SPAM_WINDOW_MS = 10 * 60 * 1000;
+const ARTICLE_SPAM_LIMIT = 5;
+const COMMENT_SPAM_WINDOW_MS = 60 * 1000;
+const COMMENT_SPAM_LIMIT = 8;
+const COMBINED_SPAM_WINDOW_MS = 5 * 60 * 1000;
+const COMBINED_SPAM_LIMIT = 15;
+
+type PostKind = "article" | "comment";
+type SpamTracker = { articleTimes: number[]; commentTimes: number[] };
+
+const postSpamTrackers = new Map<number, SpamTracker>();
+
+function trimRecent(timestamps: number[], now: number, windowMs: number) {
+  return timestamps.filter((timestamp) => now - timestamp <= windowMs);
+}
+
+async function checkSpamAndAutoMute(user: { id: number; role: "user" | "admin" | "moderator" }, kind: PostKind) {
+  if (user.role === "admin" || user.role === "moderator") {
+    return;
+  }
+
+  const now = Date.now();
+  const tracker = postSpamTrackers.get(user.id) ?? { articleTimes: [], commentTimes: [] };
+  const maxWindowMs = Math.max(ARTICLE_SPAM_WINDOW_MS, COMMENT_SPAM_WINDOW_MS, COMBINED_SPAM_WINDOW_MS);
+
+  tracker.articleTimes = trimRecent(tracker.articleTimes, now, maxWindowMs);
+  tracker.commentTimes = trimRecent(tracker.commentTimes, now, maxWindowMs);
+
+  if (kind === "article") {
+    tracker.articleTimes.push(now);
+  } else {
+    tracker.commentTimes.push(now);
+  }
+
+  const recentArticleCount = trimRecent(tracker.articleTimes, now, ARTICLE_SPAM_WINDOW_MS).length;
+  const recentCommentCount = trimRecent(tracker.commentTimes, now, COMMENT_SPAM_WINDOW_MS).length;
+  const recentCombinedCount =
+    trimRecent(tracker.articleTimes, now, COMBINED_SPAM_WINDOW_MS).length +
+    trimRecent(tracker.commentTimes, now, COMBINED_SPAM_WINDOW_MS).length;
+
+  postSpamTrackers.set(user.id, tracker);
+
+  const isSpamming =
+    recentArticleCount > ARTICLE_SPAM_LIMIT ||
+    recentCommentCount > COMMENT_SPAM_LIMIT ||
+    recentCombinedCount > COMBINED_SPAM_LIMIT;
+
+  if (isSpamming) {
+    postSpamTrackers.delete(user.id);
+    await db.muteUser(user.id);
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Your account was automatically muted because it posted too frequently. Please contact an admin if this was a mistake.",
+    });
+  }
+}
+
 const modProcedure = protectedProcedure.use(({ ctx, next }) => {
   if (ctx.user.role !== "admin" && ctx.user.role !== "moderator") {
     throw new TRPCError({ code: "FORBIDDEN", message: "Moderator access required" });
@@ -273,6 +331,18 @@ export const appRouter = router({
         await db.unmuteUser(input.userId);
         return { success: true };
       }),
+    deleteArticlesByUser: dashboardProcedure
+      .input(z.object({ userId: z.number() }))
+      .mutation(async ({ input }) => {
+        const deletedCount = await db.deleteArticlesByAuthor(input.userId);
+        return { success: true, deletedCount };
+      }),
+    deleteCommentsByUser: dashboardProcedure
+      .input(z.object({ userId: z.number() }))
+      .mutation(async ({ input }) => {
+        const deletedCount = await db.deleteCommentsByAuthor(input.userId);
+        return { success: true, deletedCount };
+      }),
     updateDisplayName: protectedProcedure
       .input(z.object({ displayName: z.string().min(1).max(100) }))
       .mutation(async ({ input, ctx }) => {
@@ -319,6 +389,19 @@ export const appRouter = router({
         if (isMuted) {
           throw new TRPCError({ code: "FORBIDDEN", message: "Your account is muted and cannot create articles" });
         }
+
+        await checkSpamAndAutoMute(ctx.user, "article");
+
+        if (ctx.user.role !== "admin") {
+          const currentArticleCount = await db.countArticlesByAuthor(ctx.user.id);
+          if (currentArticleCount >= ARTICLE_LIMIT_PER_USER) {
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: `Article limit reached. Each user can create up to ${ARTICLE_LIMIT_PER_USER} articles.`,
+            });
+          }
+        }
+
         const articleId = await db.createArticle(
           input.title,
           input.content,
@@ -351,7 +434,21 @@ export const appRouter = router({
         await db.updateArticle(input.id, input.title, input.content, input.excerpt || null, input.coverImageUrl || null);
         return { success: true };
       }),
-    delete: modProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+    delete: publicProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      const article = await db.getArticleById(input.id);
+      if (!article) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Article not found" });
+      }
+
+      const authHeader = ctx.req.headers["x-admin-token"] as string | undefined;
+      const isDashboardAdmin = validateAdminToken(authHeader);
+      const isOwner = ctx.user?.id === article.authorId;
+      const isModerator = ctx.user?.role === "admin" || ctx.user?.role === "moderator";
+
+      if (!isDashboardAdmin && !isOwner && !isModerator) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "You can only delete your own articles" });
+      }
+
       await db.deleteArticle(input.id);
       return { success: true };
     }),
@@ -396,10 +493,25 @@ export const appRouter = router({
         if (isMuted) {
           throw new TRPCError({ code: "FORBIDDEN", message: "Your account is muted and cannot create comments" });
         }
+        await checkSpamAndAutoMute(ctx.user, "comment");
         await db.createComment(input.content, input.articleId, ctx.user.id);
         return { success: true };
       }),
-    delete: modProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+    delete: publicProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      const comment = await db.getCommentById(input.id);
+      if (!comment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Comment not found" });
+      }
+
+      const authHeader = ctx.req.headers["x-admin-token"] as string | undefined;
+      const isDashboardAdmin = validateAdminToken(authHeader);
+      const isOwner = ctx.user?.id === comment.authorId;
+      const isStaff = ctx.user?.role === "admin" || ctx.user?.role === "moderator";
+
+      if (!isDashboardAdmin && !isOwner && !isStaff) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "You can only delete your own comments" });
+      }
+
       await db.deleteComment(input.id);
       return { success: true };
     }),
@@ -490,6 +602,32 @@ export const appRouter = router({
       .input(z.object({ url: z.string().url().includes("youtube").or(z.string().url().includes("youtu.be")).or(z.literal("")) }))
       .mutation(async ({ input }) => {
         await db.setSetting("featuredVideoUrl", input.url);
+        return { success: true };
+      }),
+    getHomepagePopup: publicProcedure.query(async () => {
+      const [enabled, message] = await Promise.all([
+        db.getSetting("homepagePopupEnabled"),
+        db.getSetting("homepagePopupMessage"),
+      ]);
+
+      return {
+        enabled: enabled === "true",
+        message: message || "",
+      };
+    }),
+    setHomepagePopup: dashboardProcedure
+      .input(
+        z.object({
+          enabled: z.boolean(),
+          message: z.string().max(2000, "Popup message must be 2,000 characters or fewer"),
+        })
+      )
+      .mutation(async ({ input }) => {
+        await Promise.all([
+          db.setSetting("homepagePopupEnabled", input.enabled ? "true" : "false"),
+          db.setSetting("homepagePopupMessage", input.message),
+        ]);
+
         return { success: true };
       }),
   }),
