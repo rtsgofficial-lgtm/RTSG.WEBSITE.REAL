@@ -403,7 +403,7 @@ Tips
 
 ## ☁️ File Storage
 
-Use the preconfigured storage helpers in `server/storage.ts`. Credentials are injected from the platform (no manual setup required). Files are stored securely and served via the built-in `/manus-storage/` path — no manual URL management needed.
+Use the preconfigured storage helpers in `server/storage.ts`. Credentials are injected from the platform (no manual setup required).
 
 ```ts
 import { storagePut } from "./server/storage";

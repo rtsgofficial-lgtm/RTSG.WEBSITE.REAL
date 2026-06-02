@@ -36,7 +36,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             {/* Logo */}
             <Link href="/" className="flex items-center gap-2 group">
               <img
-                src="/manus-storage/whiteandredrtsg_c075c4b3.png"
+                src="https://rs.rtsg.org/whiteandredrtsg_c075c4b3.png"
                 alt="RTSG"
                 className="w-8 h-8 rounded-lg"
               />

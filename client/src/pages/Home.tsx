@@ -52,7 +52,7 @@ export default function Home() {
             transition: "filter 0.1s ease-out",
           }}
         >
-          <source src="/manus-storage/rtsg.orgwebbackground2_ac59f027.mp4" type="video/mp4" />
+          <source src="https://rs.rtsg.org/rtsg.orgwebbackground2_ac59f027.mp4" type="video/mp4" />
         </video>
 
         {/* Multi-stop gradient vignette — sits above video, below content */}

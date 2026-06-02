@@ -2,7 +2,7 @@ import { trpc } from "@/lib/trpc";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Streamdown } from "streamdown";
 
-const VIDEO_SRC = "/manus-storage/glossy-red-liquid-morphing-abstract-background-2026-01-28-03-03-51-utc_2d2a24cb.mp4";
+const VIDEO_SRC = "https://rs.rtsg.org/glossy-red-liquid-morphing-abstract-background-2026-01-28-03-03-51-utc_2d2a24cb.mp4";
 
 export default function About() {
   const { data: page, isLoading } = trpc.pages.getBySlug.useQuery({ slug: "about" });

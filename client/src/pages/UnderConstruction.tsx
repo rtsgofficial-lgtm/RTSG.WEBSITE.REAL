@@ -7,7 +7,7 @@ export default function UnderConstruction() {
         {/* Logo */}
         <div className="mb-8">
           <img
-            src="/manus-storage/whiteandredrtsg_c075c4b3.png"
+            src="https://rs.rtsg.org/whiteandredrtsg_c075c4b3.png"
             alt="RTSG"
             className="w-24 h-24 mx-auto mb-6 opacity-90"
           />

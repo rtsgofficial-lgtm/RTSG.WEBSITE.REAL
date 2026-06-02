@@ -9,7 +9,7 @@ import { Plus, Trash2, ExternalLink, Search, Upload } from "lucide-react";
 import { toast } from "sonner";
 
 
-const VIDEO_SRC = "/manus-storage/glossy-red-liquid-morphing-abstract-background-2026-01-28-03-03-51-utc_2d2a24cb.mp4";
+const VIDEO_SRC = "https://rs.rtsg.org/glossy-red-liquid-morphing-abstract-background-2026-01-28-03-03-51-utc_2d2a24cb.mp4";
 
 export default function Resources() {
 
@@ -248,7 +248,7 @@ export default function Resources() {
                       className="flex items-center justify-between p-3 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 transition-colors"
                     >
                       <a
-                        href={pdf.pdfUrl.startsWith("/manus-storage/") ? pdf.pdfUrl.split("/").map((seg, i) => i <= 1 ? seg : encodeURIComponent(decodeURIComponent(seg))).join("/") : pdf.pdfUrl}
+                        href={pdf.pdfUrl}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="glitch-hover flex items-center gap-2 text-primary hover:underline flex-1"
