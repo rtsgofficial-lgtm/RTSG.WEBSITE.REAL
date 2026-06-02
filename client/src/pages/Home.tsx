@@ -25,6 +25,20 @@ export default function Home() {
     retry: 1,
   });
 
+  const FALLBACK_VIDEO_ID = "-XL6K1gbT-M";
+
+  function getYouTubeEmbedUrl(latestVideo?: { videoId?: string; embedUrl?: string } | null) {
+    if (latestVideo?.videoId) {
+      return `https://www.youtube.com/embed/${latestVideo.videoId}`;
+    }
+
+    if (latestVideo?.embedUrl?.includes("youtube.com/embed/")) {
+      return latestVideo.embedUrl;
+    }
+
+    return `https://www.youtube.com/embed/${FALLBACK_VIDEO_ID}`;
+  }
+
   return (
     <div className="min-h-[80vh] flex flex-col">
       {/* Hero Section */}
@@ -179,7 +193,7 @@ export default function Home() {
                 </div>
               </div>
               <a
-                href="https://www.youtube.com/@RTSG_Main"
+                href="https://youtube.com/@RTSG_Main"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="glitch-hover flex items-center gap-1.5 text-xs text-primary hover:underline"
@@ -196,7 +210,7 @@ export default function Home() {
               <div className="relative w-full rounded-xl overflow-hidden bg-black/40 border border-white/10"
                 style={{ aspectRatio: "16/9" }}>
                 <iframe
-                  src={`${latestVideo.embedUrl}?rel=0&modestbranding=1&color=white`}
+                  src={`${getYouTubeEmbedUrl(latestVideo)}?rel=0&modestbranding=1&color=white`}
                   title={latestVideo.title || "RTSG Latest Video"}
                   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                   allowFullScreen
@@ -207,7 +221,7 @@ export default function Home() {
             ) : (
               /* No video available — show channel CTA */
               <a
-                href="https://www.youtube.com/@RTSG_Main"
+                href="https://youtu.be/-XL6K1gbT-M"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex flex-col items-center justify-center gap-4 w-full rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-colors cursor-pointer"

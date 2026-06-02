@@ -7,7 +7,6 @@ import { z } from "zod";
 import * as db from "./db";
 import { notifyOwner } from "./_core/notification";
 import { storagePut } from "./storage";
-import { callDataApi } from "./_core/dataApi";
 import crypto from "crypto";
 
 // ─── Role-based middleware ──────────────────────────────────────────────────
@@ -148,6 +147,184 @@ function validateAdminToken(token: string | undefined): boolean {
   if (!token) return false;
   cleanExpiredSessions();
   return adminSessions.has(token);
+}
+
+
+// ─── YouTube Data API helpers ───────────────────────────────────────────────
+
+type LatestYouTubeVideo = {
+  videoId: string;
+  title: string | null;
+  thumbnail: string | null;
+  publishedTimeText: string | null;
+  embedUrl: string;
+  source: "api" | "manual";
+};
+
+let youtubeCache: {
+  expiresAt: number;
+  data: LatestYouTubeVideo | null;
+} | null = null;
+
+const YOUTUBE_CACHE_TTL_MS = 30 * 60 * 1000;
+
+function extractYouTubeVideoId(url: string): string | null {
+  const match = url.match(/(?:v=|youtu\.be\/|embed\/)([\w-]{11})/);
+  return match?.[1] ?? null;
+}
+
+function formatPublishedTime(publishedAt?: string): string | null {
+  if (!publishedAt) return null;
+
+  const publishedDate = new Date(publishedAt);
+  if (Number.isNaN(publishedDate.getTime())) return null;
+
+  const diffDays = Math.floor((Date.now() - publishedDate.getTime()) / (1000 * 60 * 60 * 24));
+
+  if (diffDays <= 0) return "today";
+  if (diffDays === 1) return "1 day ago";
+  if (diffDays < 30) return `${diffDays} days ago`;
+
+  const diffMonths = Math.floor(diffDays / 30);
+  if (diffMonths === 1) return "1 month ago";
+  if (diffMonths < 12) return `${diffMonths} months ago`;
+
+  const diffYears = Math.floor(diffDays / 365);
+  if (diffYears === 1) return "1 year ago";
+  return `${diffYears} years ago`;
+}
+
+async function fetchJson<T>(url: URL): Promise<T> {
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(
+      `YouTube API request failed: ${response.status} ${response.statusText}${detail ? ` - ${detail}` : ""}`
+    );
+  }
+
+  return response.json() as Promise<T>;
+}
+
+async function getYouTubeUploadsPlaylistId(apiKey: string): Promise<string> {
+  const directUploadsPlaylistId = process.env.YOUTUBE_UPLOADS_PLAYLIST_ID;
+
+  if (directUploadsPlaylistId) {
+    return directUploadsPlaylistId;
+  }
+
+  const channelId = process.env.YOUTUBE_CHANNEL_ID;
+  const channelHandle = process.env.YOUTUBE_CHANNEL_HANDLE || "@RTSG_Main";
+
+  const url = new URL("https://www.googleapis.com/youtube/v3/channels");
+  url.searchParams.set("part", "contentDetails");
+  url.searchParams.set("key", apiKey);
+
+  if (channelId) {
+    url.searchParams.set("id", channelId);
+  } else {
+    url.searchParams.set("forHandle", channelHandle);
+  }
+
+  const data = await fetchJson<{
+    items?: Array<{
+      contentDetails?: {
+        relatedPlaylists?: {
+          uploads?: string;
+        };
+      };
+    }>;
+  }>(url);
+
+  const uploadsPlaylistId = data.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
+
+  if (!uploadsPlaylistId) {
+    throw new Error("Could not find YouTube uploads playlist ID.");
+  }
+
+  return uploadsPlaylistId;
+}
+
+async function fetchLatestYouTubeVideoFromApi(): Promise<LatestYouTubeVideo | null> {
+  const apiKey = process.env.YOUTUBE_API_KEY;
+
+  if (!apiKey) {
+    console.warn("[YouTube] Missing YOUTUBE_API_KEY");
+    return null;
+  }
+
+  const uploadsPlaylistId = await getYouTubeUploadsPlaylistId(apiKey);
+
+  const url = new URL("https://www.googleapis.com/youtube/v3/playlistItems");
+  url.searchParams.set("part", "snippet");
+  url.searchParams.set("playlistId", uploadsPlaylistId);
+  url.searchParams.set("maxResults", "1");
+  url.searchParams.set("key", apiKey);
+
+  const data = await fetchJson<{
+    items?: Array<{
+      snippet?: {
+        title?: string;
+        publishedAt?: string;
+        thumbnails?: {
+          default?: { url?: string };
+          medium?: { url?: string };
+          high?: { url?: string };
+          standard?: { url?: string };
+          maxres?: { url?: string };
+        };
+        resourceId?: {
+          videoId?: string;
+        };
+      };
+    }>;
+  }>(url);
+
+  const snippet = data.items?.[0]?.snippet;
+  const videoId = snippet?.resourceId?.videoId;
+
+  if (!videoId) {
+    return null;
+  }
+
+  return {
+    videoId,
+    title: snippet?.title || null,
+    thumbnail:
+      snippet?.thumbnails?.maxres?.url ||
+      snippet?.thumbnails?.standard?.url ||
+      snippet?.thumbnails?.high?.url ||
+      snippet?.thumbnails?.medium?.url ||
+      snippet?.thumbnails?.default?.url ||
+      null,
+    publishedTimeText: formatPublishedTime(snippet?.publishedAt),
+    embedUrl: `https://www.youtube.com/embed/${videoId}`,
+    source: "api",
+  };
+}
+
+async function getManualFeaturedVideo(): Promise<LatestYouTubeVideo | null> {
+  const configuredUrl = await db.getSetting("featuredVideoUrl");
+
+  if (!configuredUrl) {
+    return null;
+  }
+
+  const videoId = extractYouTubeVideoId(configuredUrl);
+
+  if (!videoId) {
+    return null;
+  }
+
+  return {
+    videoId,
+    title: null,
+    thumbnail: null,
+    publishedTimeText: null,
+    embedUrl: `https://www.youtube.com/embed/${videoId}`,
+    source: "manual",
+  };
 }
 
 // ─── Admin-session-protected procedure ──────────────────────────────────────
@@ -636,46 +813,28 @@ export const appRouter = router({
 
   youtube: router({
     getLatestVideo: publicProcedure.query(async () => {
-      // Try to fetch the latest video from the RTSG channel via the built-in YouTube API
+      if (youtubeCache && youtubeCache.expiresAt > Date.now()) {
+        return youtubeCache.data;
+      }
+
+      let latestVideo: LatestYouTubeVideo | null = null;
+
       try {
-        const result = await callDataApi("Youtube/get_channel_videos", {
-          query: { id: "https://www.youtube.com/@RTSG_Main", filter: "videos_latest", hl: "en", gl: "US" },
-        }) as { contents?: Array<{ type: string; video?: { videoId?: string; title?: string; thumbnails?: Array<{ url: string }>; publishedTimeText?: string } }> };
-
-        const first = result?.contents?.find((c) => c.type === "video");
-        if (first?.video?.videoId) {
-          const v = first.video;
-          return {
-            videoId: v.videoId,
-            title: v.title || null,
-            thumbnail: v.thumbnails?.[0]?.url || null,
-            publishedTimeText: v.publishedTimeText || null,
-            embedUrl: `https://www.youtube.com/embed/${v.videoId}`,
-            source: "api" as const,
-          };
-        }
+        latestVideo = await fetchLatestYouTubeVideoFromApi();
       } catch (err) {
-        console.warn("[YouTube] Failed to fetch latest video:", err);
+        console.warn("[YouTube] Failed to fetch latest video from YouTube Data API:", err);
       }
 
-      // Fallback: use admin-configured URL
-      const configuredUrl = await db.getSetting("featuredVideoUrl");
-      if (configuredUrl) {
-        // Extract video ID from youtube.com/watch?v=ID or youtu.be/ID
-        const match = configuredUrl.match(/(?:v=|youtu\.be\/)([\w-]{11})/);
-        if (match) {
-          return {
-            videoId: match[1],
-            title: null,
-            thumbnail: null,
-            publishedTimeText: null,
-            embedUrl: `https://www.youtube.com/embed/${match[1]}`,
-            source: "manual" as const,
-          };
-        }
+      if (!latestVideo) {
+        latestVideo = await getManualFeaturedVideo();
       }
 
-      return null;
+      youtubeCache = {
+        expiresAt: Date.now() + YOUTUBE_CACHE_TTL_MS,
+        data: latestVideo,
+      };
+
+      return latestVideo;
     }),
   }),
 
