@@ -5,7 +5,7 @@ import { publicProcedure, protectedProcedure, adminProcedure, router } from "./_
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import * as db from "./db";
-import { notifyOwner } from "./_core/notification";
+import { sendContactEmail } from "./_core/contactEmail";
 import { storagePut } from "./storage";
 import crypto from "crypto";
 
@@ -739,11 +739,8 @@ export const appRouter = router({
       )
       .mutation(async ({ input }) => {
         await db.createContactMessage(input.name, input.email, input.subject, input.message);
-        await notifyOwner({
-          title: `New Contact: ${input.subject}`,
-          content: `From: ${input.name} (${input.email})\n\n${input.message}`,
-        });
-        return { success: true };
+        const emailSent = await sendContactEmail(input);
+        return { success: true, emailSent };
       }),
     list: dashboardProcedure.query(async () => {
       return db.getContactMessages();
