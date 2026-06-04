@@ -159,6 +159,69 @@
       0 8px 32px oklch(0 0 0 / 40%);
   }
 
+  .liquid-glass-panel {
+    position: relative;
+    overflow: hidden;
+    background:
+      linear-gradient(145deg, oklch(1 0 0 / 10%), transparent 28%),
+      linear-gradient(315deg, oklch(0.55 0.22 25 / 10%), transparent 38%),
+      oklch(0.08 0 0 / 52%);
+    backdrop-filter: blur(34px) saturate(1.35);
+    border: 1px solid oklch(1 0 0 / 12%);
+    box-shadow:
+      0 1px 0 oklch(1 0 0 / 14%) inset,
+      0 0 0 1px oklch(1 0 0 / 5%) inset,
+      0 24px 80px oklch(0 0 0 / 56%),
+      0 0 60px oklch(0.55 0.22 25 / 10%);
+  }
+
+  .liquid-glass-panel::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+      linear-gradient(120deg, oklch(1 0 0 / 18%), transparent 18% 72%, oklch(0.55 0.22 25 / 12%)),
+      radial-gradient(ellipse at 20% 0%, oklch(1 0 0 / 16%), transparent 34%);
+    opacity: 0.7;
+    mix-blend-mode: screen;
+  }
+
+  .liquid-glass-panel > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .resource-shape-field {
+    position: fixed;
+    inset: 0;
+    z-index: 2;
+    pointer-events: none;
+    overflow: hidden;
+  }
+
+  .resource-parallax-shape {
+    position: absolute;
+    width: clamp(13rem, 28vw, 27rem);
+    height: auto;
+    filter:
+      drop-shadow(0 30px 60px oklch(0 0 0 / 70%))
+      drop-shadow(0 0 24px oklch(0.55 0.22 25 / 16%));
+    opacity: 0.62;
+    transform-origin: center;
+    will-change: transform;
+  }
+
+  .resource-parallax-shape-left {
+    top: 5rem;
+    left: max(-8rem, -6vw);
+  }
+
+  .resource-parallax-shape-right {
+    top: 4.5rem;
+    right: max(-8rem, -6vw);
+  }
+
   .text-gradient-red {
     background: linear-gradient(135deg, oklch(0.65 0.22 25), oklch(0.5 0.2 25));
     -webkit-background-clip: text;
@@ -419,6 +482,28 @@
 @media (prefers-reduced-motion: reduce) {
   .glitch-hover:hover {
     animation: none;
+  }
+
+  .resource-parallax-shape {
+    transform: none !important;
+    will-change: auto;
+  }
+}
+
+@media (max-width: 767px) {
+  .resource-parallax-shape {
+    width: clamp(10rem, 45vw, 16rem);
+    opacity: 0.34;
+  }
+
+  .resource-parallax-shape-left {
+    top: 4.25rem;
+    left: -6rem;
+  }
+
+  .resource-parallax-shape-right {
+    top: 5.25rem;
+    right: -6rem;
   }
 }
 

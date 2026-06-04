@@ -4,9 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Streamdown } from "streamdown";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Plus, Trash2, ExternalLink, Search, Upload } from "lucide-react";
 import { toast } from "sonner";
+import glassShapeLeft from "@/assets/resources/glass-shape-left.png";
+import glassShapeRight from "@/assets/resources/glass-shape-right.png";
 
 
 const VIDEO_SRC = "https://rs.rtsg.org/glossy-red-liquid-morphing-abstract-background-2026-01-28-03-03-51-utc_2d2a24cb.mp4";
@@ -24,6 +26,29 @@ export default function Resources() {
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [scrollOffset, setScrollOffset] = useState(0);
+
+  useEffect(() => {
+    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (prefersReducedMotion) return;
+
+    let animationFrame = 0;
+
+    const handleScroll = () => {
+      cancelAnimationFrame(animationFrame);
+      animationFrame = window.requestAnimationFrame(() => {
+        setScrollOffset(window.scrollY);
+      });
+    };
+
+    handleScroll();
+    window.addEventListener("scroll", handleScroll, { passive: true });
+
+    return () => {
+      cancelAnimationFrame(animationFrame);
+      window.removeEventListener("scroll", handleScroll);
+    };
+  }, []);
 
   const filteredPdfs = useMemo(() => {
     if (!pdfResources) return [];
@@ -98,7 +123,7 @@ export default function Resources() {
   const isLoading = pageLoading || pdfLoading;
 
   return (
-    <div className="relative min-h-screen">
+    <div className="relative min-h-screen overflow-hidden">
       {/* Ambient background video */}
       <video
         autoPlay
@@ -115,7 +140,8 @@ export default function Resources() {
           zIndex: 0,
           pointerEvents: "none",
           opacity: 0,
-          filter: "brightness(0.75) saturate(0.8)",
+          filter: "brightness(0.58) saturate(0.85) blur(12px)",
+          transform: "scale(1.04)",
           border: "none",
           borderRadius: 0,
         }}
@@ -131,7 +157,7 @@ export default function Resources() {
           zIndex: 1,
           pointerEvents: "none",
           background:
-            "linear-gradient(to bottom, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.25) 40%, rgba(0,0,0,0.25) 60%, rgba(0,0,0,0.75) 100%)",
+            "linear-gradient(to bottom, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.38) 38%, rgba(0,0,0,0.42) 62%, rgba(0,0,0,0.82) 100%)",
         }}
       />
       <div
@@ -144,8 +170,28 @@ export default function Resources() {
         }}
       />
 
+      {/* Scroll parallax glass shapes */}
+      <div className="resource-shape-field" aria-hidden="true">
+        <img
+          src={glassShapeLeft}
+          alt=""
+          className="resource-parallax-shape resource-parallax-shape-left"
+          style={{
+            transform: `translate3d(0, ${scrollOffset * -0.08}px, 0) rotate(${scrollOffset * 0.012 - 10}deg)`,
+          }}
+        />
+        <img
+          src={glassShapeRight}
+          alt=""
+          className="resource-parallax-shape resource-parallax-shape-right"
+          style={{
+            transform: `translate3d(0, ${scrollOffset * 0.06}px, 0) rotate(${scrollOffset * -0.01 + 12}deg)`,
+          }}
+        />
+      </div>
+
       {/* Page content */}
-      <div className="container max-w-3xl mx-auto py-8 relative" style={{ zIndex: 2 }}>
+      <div className="container max-w-3xl mx-auto py-8 sm:py-12 relative" style={{ zIndex: 3 }}>
         {isLoading ? (
           <div className="space-y-4">
             <Skeleton className="h-10 w-64 bg-white/5" />
@@ -156,14 +202,14 @@ export default function Resources() {
         ) : page ? (
           <div className="space-y-8">
             {/* Main content */}
-            <div className="glass rounded-2xl p-8 animate-fade-in">
+            <div className="liquid-glass-panel rounded-2xl p-6 sm:p-8 animate-fade-in">
               <div className="prose prose-invert prose-sm max-w-none [&_h1]:text-3xl [&_h1]:font-bold [&_h1]:text-foreground [&_h1]:mb-4 [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:text-foreground [&_p]:text-muted-foreground [&_p]:leading-relaxed [&_a]:text-primary [&_a]:no-underline [&_a:hover]:underline [&_ul]:text-muted-foreground [&_ol]:text-muted-foreground [&_li]:text-muted-foreground">
                 <Streamdown>{page.content || ""}</Streamdown>
               </div>
             </div>
 
             {/* PDF Resources Section */}
-            <div className="glass rounded-2xl p-8 animate-fade-in">
+            <div className="liquid-glass-panel rounded-2xl p-6 sm:p-8 animate-fade-in">
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-bold text-foreground">PDF Resources</h2>
                 {isAdmin && (
@@ -281,7 +327,7 @@ export default function Resources() {
             </div>
           </div>
         ) : (
-          <div className="glass rounded-2xl p-12 text-center">
+          <div className="liquid-glass-panel rounded-2xl p-12 text-center">
             <p className="text-muted-foreground">Content not available.</p>
           </div>
         )}
