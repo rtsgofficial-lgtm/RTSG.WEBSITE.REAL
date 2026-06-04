@@ -165,7 +165,7 @@
     background:
       linear-gradient(145deg, oklch(1 0 0 / 10%), transparent 28%),
       linear-gradient(315deg, oklch(0.55 0.22 25 / 10%), transparent 38%),
-      oklch(0.08 0 0 / 52%);
+      oklch(0.08 0 0 / 30%);
     backdrop-filter: blur(34px) saturate(1.35);
     border: 1px solid oklch(1 0 0 / 12%);
     box-shadow:
@@ -202,8 +202,7 @@
 
   .resource-parallax-shape {
     position: absolute;
-    width: clamp(13rem, 28vw, 27rem);
-    height: auto;
+    width: clamp(11rem, 24vw, 23rem);
     filter:
       drop-shadow(0 30px 60px oklch(0 0 0 / 70%))
       drop-shadow(0 0 24px oklch(0.55 0.22 25 / 16%));
@@ -212,14 +211,30 @@
     will-change: transform;
   }
 
+  .resource-parallax-shape-image {
+    display: block;
+    width: 100%;
+    height: auto;
+    transform-origin: center;
+    will-change: transform;
+  }
+
+  .resource-parallax-spin-left {
+    animation: resourceShapeSpin 95s linear infinite;
+  }
+
+  .resource-parallax-spin-right {
+    animation: resourceShapeSpinReverse 110s linear infinite;
+  }
+
   .resource-parallax-shape-left {
     top: 5rem;
-    left: max(-8rem, -6vw);
+    left: max(2rem, -6vw);
   }
 
   .resource-parallax-shape-right {
-    top: 4.5rem;
-    right: max(-8rem, -6vw);
+    top: 15rem;
+    right: max(5rem, -6vw);
   }
 
   .text-gradient-red {
@@ -440,6 +455,24 @@
   }
 }
 
+@keyframes resourceShapeSpin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes resourceShapeSpinReverse {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(-360deg);
+  }
+}
+
 /* ─── Chromatic Glitch Hover Animation ─────────────────────────────────────
    Apply .glitch-hover to small text-based buttons/links only.
    Triggers on :hover with subtle red/cyan text-shadow flicker.
@@ -486,6 +519,11 @@
 
   .resource-parallax-shape {
     transform: none !important;
+    will-change: auto;
+  }
+
+  .resource-parallax-shape-image {
+    animation: none;
     will-change: auto;
   }
 }

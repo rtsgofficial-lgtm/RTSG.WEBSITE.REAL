@@ -7,11 +7,11 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { useState, useMemo, useEffect } from "react";
 import { Plus, Trash2, ExternalLink, Search, Upload } from "lucide-react";
 import { toast } from "sonner";
-import glassShapeLeft from "@/assets/resources/glass-shape-left.png";
-import glassShapeRight from "@/assets/resources/glass-shape-right.png";
 
 
 const VIDEO_SRC = "https://rs.rtsg.org/glossy-red-liquid-morphing-abstract-background-2026-01-28-03-03-51-utc_2d2a24cb.mp4";
+const GLASS_SHAPE_LEFT_SRC = "https://rs.rtsg.org/24.png";
+const GLASS_SHAPE_RIGHT_SRC = "https://rs.rtsg.org/10.png";
 
 export default function Resources() {
 
@@ -172,22 +172,30 @@ export default function Resources() {
 
       {/* Scroll parallax glass shapes */}
       <div className="resource-shape-field" aria-hidden="true">
-        <img
-          src={glassShapeLeft}
-          alt=""
+        <div
           className="resource-parallax-shape resource-parallax-shape-left"
           style={{
             transform: `translate3d(0, ${scrollOffset * -0.08}px, 0) rotate(${scrollOffset * 0.012 - 10}deg)`,
           }}
-        />
-        <img
-          src={glassShapeRight}
-          alt=""
+        >
+          <img
+            src={GLASS_SHAPE_LEFT_SRC}
+            alt=""
+            className="resource-parallax-shape-image resource-parallax-spin-left"
+          />
+        </div>
+        <div
           className="resource-parallax-shape resource-parallax-shape-right"
           style={{
             transform: `translate3d(0, ${scrollOffset * 0.06}px, 0) rotate(${scrollOffset * -0.01 + 12}deg)`,
           }}
-        />
+        >
+          <img
+            src={GLASS_SHAPE_RIGHT_SRC}
+            alt=""
+            className="resource-parallax-shape-image resource-parallax-spin-right"
+          />
+        </div>
       </div>
 
       {/* Page content */}
