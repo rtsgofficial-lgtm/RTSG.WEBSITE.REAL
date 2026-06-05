@@ -20,12 +20,13 @@ import {
   Eye,
   Settings,
   MessageSquare,
+  ShoppingBag,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 
-type Tab = "users" | "pages" | "messages" | "articles" | "settings";
+type Tab = "users" | "pages" | "messages" | "articles" | "shop" | "settings";
 
 export default function AdminDashboard() {
   const [, navigate] = useLocation();
@@ -81,6 +82,7 @@ export default function AdminDashboard() {
     { id: "pages", label: "Pages", icon: <FileText className="w-4 h-4" /> },
     { id: "messages", label: "Messages", icon: <Mail className="w-4 h-4" /> },
     { id: "articles", label: "Articles", icon: <PenLine className="w-4 h-4" /> },
+    { id: "shop", label: "Shop", icon: <ShoppingBag className="w-4 h-4" /> },
     { id: "settings", label: "Settings", icon: <Settings className="w-4 h-4" /> },
   ];
 
@@ -135,6 +137,7 @@ export default function AdminDashboard() {
         {activeTab === "pages" && <PagesPanel />}
         {activeTab === "messages" && <MessagesPanel />}
         {activeTab === "articles" && <ArticlesPanel />}
+        {activeTab === "shop" && <ShopPanel />}
         {activeTab === "settings" && <SettingsPanel token={token} />}
       </div>
     </div>
@@ -567,6 +570,176 @@ function ArticlesPanel() {
         )}
       </div>
 
+    </div>
+  );
+}
+
+// ─── Shop Panel ─────────────────────────────────────────────────────────────
+
+function ShopPanel() {
+  const { data: products, refetch } = trpc.shop.listProducts.useQuery();
+  const [editingProductId, setEditingProductId] = useState<string | null>(null);
+  const [description, setDescription] = useState("");
+  const [details, setDetails] = useState("");
+
+  const updateProductCopy = trpc.shop.updateProductCopy.useMutation({
+    onSuccess: () => {
+      refetch();
+      toast.success("Shop product updated");
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const editingProduct = products?.find((product) => product.id === editingProductId) ?? products?.[0] ?? null;
+
+  useEffect(() => {
+    if (!editingProduct) return;
+    setEditingProductId(editingProduct.id);
+    setDescription(editingProduct.description);
+    setDetails(editingProduct.details);
+  }, [editingProduct?.id]);
+
+  const handleSave = () => {
+    if (!editingProduct) return;
+    updateProductCopy.mutate({
+      productId: editingProduct.id,
+      description,
+      details,
+    });
+  };
+
+  return (
+    <div className="animate-fade-in">
+      <h2 className="text-xl font-bold text-foreground mb-4">Shop</h2>
+      <p className="text-sm text-muted-foreground mb-6">
+        Edit public product descriptions and review the Printful product data used by checkout.
+      </p>
+
+      {!editingProduct ? (
+        <div className="glass rounded-2xl p-12 text-center">
+          <ShoppingBag className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
+          <p className="text-muted-foreground">No shop products configured.</p>
+        </div>
+      ) : (
+        <div className="grid gap-6 lg:grid-cols-[18rem_1fr]">
+          <div className="space-y-3">
+            {products?.map((product) => (
+              <button
+                key={product.id}
+                type="button"
+                onClick={() => setEditingProductId(product.id)}
+                className={`glass w-full rounded-2xl p-4 text-left transition-colors ${
+                  editingProduct.id === product.id ? "border-primary/30 bg-primary/10" : "hover:bg-white/[0.03]"
+                }`}
+              >
+                <img
+                  src={product.variants[0]?.mockupImageUrl}
+                  alt=""
+                  className="mb-4 aspect-square w-full rounded-xl bg-black/25 object-contain p-3"
+                />
+                <p className="text-sm font-semibold text-foreground">{product.name}</p>
+                <p className="text-xs text-muted-foreground">{product.price}</p>
+              </button>
+            ))}
+          </div>
+
+          <div className="glass rounded-2xl p-6">
+            <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-foreground">{editingProduct.name}</h3>
+                <p className="text-sm text-muted-foreground">
+                  {editingProduct.brand} {editingProduct.model} • {editingProduct.productType} • {editingProduct.price}
+                </p>
+                <a
+                  href={`/shop/${editingProduct.id}`}
+                  className="mt-2 inline-flex items-center gap-2 text-xs font-medium text-primary hover:text-primary/80"
+                >
+                  <Eye className="w-3 h-3" />
+                  View public product page
+                </a>
+              </div>
+              <Button
+                onClick={handleSave}
+                disabled={updateProductCopy.isPending}
+                className="rounded-xl gap-2 bg-primary hover:bg-primary/90 text-primary-foreground"
+              >
+                <Save className="w-4 h-4" />
+                {updateProductCopy.isPending ? "Saving..." : "Save Product"}
+              </Button>
+            </div>
+
+            <div className="grid gap-5">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                  <p className="text-xs uppercase tracking-wider text-muted-foreground">Sync Product</p>
+                  <p className="mt-1 text-sm font-semibold text-foreground">{editingProduct.printfulSyncProductId}</p>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                  <p className="text-xs uppercase tracking-wider text-muted-foreground">Catalog Product</p>
+                  <p className="mt-1 text-sm font-semibold text-foreground">{editingProduct.printfulCatalogProductId}</p>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                  <p className="text-xs uppercase tracking-wider text-muted-foreground">Variants</p>
+                  <p className="mt-1 text-sm font-semibold text-foreground">{editingProduct.variants.length}</p>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2 block">
+                  Public Description
+                </label>
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  rows={4}
+                  maxLength={3000}
+                  className="w-full px-4 py-3 rounded-xl bg-black/20 border border-white/10 text-foreground text-sm focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30 transition-all resize-none"
+                />
+                <p className="mt-2 text-xs text-muted-foreground">{description.length}/3000</p>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2 block">
+                  Product Details
+                </label>
+                <textarea
+                  value={details}
+                  onChange={(e) => setDetails(e.target.value)}
+                  rows={8}
+                  maxLength={5000}
+                  className="w-full px-4 py-3 rounded-xl bg-black/20 border border-white/10 text-foreground text-sm focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30 transition-all resize-none"
+                />
+                <p className="mt-2 text-xs text-muted-foreground">{details.length}/5000</p>
+              </div>
+
+              <div>
+                <p className="mb-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  Printful Variants
+                </p>
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  {editingProduct.variants.map((variant) => (
+                    <div key={variant.id} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                      <div className="mb-3 grid grid-cols-3 gap-2">
+                        {variant.images.map((image) => (
+                          <img
+                            key={image.id}
+                            src={image.url}
+                            alt=""
+                            className="aspect-square w-full rounded-lg bg-black/20 object-contain p-2"
+                          />
+                        ))}
+                      </div>
+                      <p className="text-sm font-semibold text-foreground">{variant.name}</p>
+                      <p className="text-xs text-muted-foreground">Sync variant {variant.printfulSyncVariantId}</p>
+                      <p className="text-xs text-muted-foreground">External {variant.printfulExternalVariantId}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

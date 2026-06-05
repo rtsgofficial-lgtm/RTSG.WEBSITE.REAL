@@ -17,6 +17,8 @@ import ArticleEdit from "./pages/ArticleEdit";
 import About from "./pages/About";
 import Contact from "./pages/Contact";
 import Resources from "./pages/Resources";
+import Shop from "./pages/Shop";
+import ShopProduct from "./pages/ShopProduct";
 import AdminLogin from "./pages/AdminLogin";
 import AdminDashboard from "./pages/AdminDashboard";
 import Profile from "./pages/Profile";
@@ -37,6 +39,8 @@ function AdminRouter() {
       <Route path="/about" component={About} />
       <Route path="/contact" component={Contact} />
       <Route path="/resources" component={Resources} />
+      <Route path="/shop/:productId" component={ShopProduct} />
+      <Route path="/shop" component={Shop} />
       <Route path="/profile" component={Profile} />
       <Route path="/admin" component={AdminLogin} />
       <Route path="/admin/dashboard" component={AdminDashboard} />
@@ -58,6 +62,8 @@ function PublicRouter() {
       <Route path="/about" component={About} />
       <Route path="/contact" component={Contact} />
       <Route path="/resources" component={Resources} />
+      <Route path="/shop/:productId" component={ShopProduct} />
+      <Route path="/shop" component={Shop} />
       <Route path="/profile" component={Profile} />
       <Route path="/admin" component={AdminLogin} />
       <Route path="/admin/dashboard" component={AdminDashboard} />
@@ -71,6 +77,8 @@ function ConstructionRouter() {
   return (
     <Switch>
       <Route path="/login" component={Login} />
+      <Route path="/shop/:productId" component={ShopProduct} />
+      <Route path="/shop" component={Shop} />
       <Route path="/admin" component={AdminLogin} />
       <Route path="/admin/dashboard" component={AdminDashboard} />
       <Route component={UnderConstruction} />

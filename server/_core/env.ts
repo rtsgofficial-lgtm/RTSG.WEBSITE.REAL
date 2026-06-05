@@ -7,4 +7,10 @@ export const ENV = {
   isProduction: process.env.NODE_ENV === "production",
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
   forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
+  resendApiKey: process.env.RESEND_API ?? "",
+  stripeSecretKey: process.env.STRIPE_SECRET_KEY ?? "",
+  stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? "",
+  printfulApiKey: process.env.PRINTFUL_API ?? "",
+  printfulStoreId: process.env.PRINTFUL_STORE_ID ?? "18281109",
+  substackFeedUrl: process.env.SUBSTACK_FEED_URL ?? "https://rtsg.media/feed",
 };

@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { ArrowRight, PenLine, Users, Zap, Youtube, ExternalLink } from "lucide-react";
+import { ArrowRight, Newspaper, PenLine, Users, Zap, Youtube, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useState, useEffect } from "react";
@@ -23,6 +23,10 @@ export default function Home() {
 
   const { data: latestVideo, isLoading: videoLoading } = trpc.youtube.getLatestVideo.useQuery(undefined, {
     staleTime: 5 * 60 * 1000, // cache for 5 minutes
+    retry: 1,
+  });
+  const { data: latestSubstackPost, isLoading: substackLoading } = trpc.substack.getLatestPost.useQuery(undefined, {
+    staleTime: 10 * 60 * 1000,
     retry: 1,
   });
 
@@ -176,10 +180,97 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Latest Video Section */}
+      {/* Latest Media Section */}
       <section className="pb-24">
-        <div className="container max-w-3xl mx-auto">
-          <div className="glass rounded-2xl p-8 animate-fade-in">
+        <div className="container max-w-6xl mx-auto grid gap-6 lg:grid-cols-2">
+          <div className="glass rounded-2xl p-8 animate-fade-in flex h-full flex-col">
+            <div className="flex items-center justify-between gap-5 mb-6">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-9 h-9 rounded-xl bg-primary/10 border border-primary/20 flex shrink-0 items-center justify-center">
+                  <Newspaper className="w-4 h-4 text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <h2 className="text-lg font-semibold text-foreground">Latest Substack Article</h2>
+                  {latestSubstackPost?.title && (
+                    <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1 max-w-md">
+                      {latestSubstackPost.title}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <a
+                href="https://rtsg.media"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="glitch-hover flex shrink-0 items-center gap-1.5 text-xs text-primary hover:underline"
+              >
+                View Substack
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+
+            {substackLoading ? (
+              <div className="flex flex-1 flex-col">
+                <Skeleton className="w-full aspect-video rounded-xl bg-white/5" />
+                <div className="mt-5 space-y-3">
+                  <Skeleton className="h-5 w-2/3 rounded bg-white/5" />
+                  <Skeleton className="h-4 w-full rounded bg-white/5" />
+                  <Skeleton className="h-4 w-5/6 rounded bg-white/5" />
+                </div>
+              </div>
+            ) : latestSubstackPost ? (
+              <a
+                href={latestSubstackPost.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group flex flex-1 flex-col"
+              >
+                <div className="relative w-full aspect-video overflow-hidden rounded-xl border border-white/10 bg-black/35">
+                  {latestSubstackPost.imageUrl ? (
+                    <img
+                      src={latestSubstackPost.imageUrl}
+                      alt=""
+                      className="h-full w-full object-cover opacity-82 transition duration-500 group-hover:scale-105 group-hover:opacity-100"
+                    />
+                  ) : (
+                    <div className="grid h-full place-items-center bg-primary/10">
+                      <Newspaper className="h-8 w-8 text-primary" />
+                    </div>
+                  )}
+                  <div className="absolute inset-0 bg-black/10 transition-colors group-hover:bg-black/0" />
+                </div>
+                <div className="mt-5 flex min-w-0 flex-1 flex-col">
+                  <h3 className="line-clamp-2 text-xl font-bold leading-tight text-foreground transition-colors group-hover:text-primary">
+                    {latestSubstackPost.title}
+                  </h3>
+                  {latestSubstackPost.excerpt && (
+                    <p className="mt-3 line-clamp-2 text-sm leading-relaxed text-muted-foreground">
+                      {latestSubstackPost.excerpt}
+                    </p>
+                  )}
+                  <div className="mt-auto pt-5 flex items-center gap-3 text-xs text-muted-foreground">
+                    {latestSubstackPost.publishedTimeText && <span>Published {latestSubstackPost.publishedTimeText}</span>}
+                    <span className="text-primary">Read on Substack</span>
+                  </div>
+                </div>
+              </a>
+            ) : (
+              <a
+                href="https://rtsg.media"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group flex flex-1 items-center justify-between gap-5 rounded-xl border border-white/10 bg-white/[0.03] p-5 transition-colors hover:bg-white/[0.06]"
+              >
+                <div>
+                  <p className="text-sm font-semibold text-foreground">Read RTSG on Substack</p>
+                  <p className="mt-1 text-xs text-muted-foreground">The latest post will appear here once the feed is available.</p>
+                </div>
+                <ExternalLink className="h-4 w-4 shrink-0 text-primary" />
+              </a>
+            )}
+          </div>
+
+          <div className="glass rounded-2xl p-8 animate-fade-in flex h-full flex-col">
             {/* Section header */}
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-3">

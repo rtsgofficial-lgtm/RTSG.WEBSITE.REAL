@@ -6,6 +6,15 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import * as db from "./db";
 import { sendContactEmail } from "./_core/contactEmail";
+import { sendResendHelloWorldEmail } from "./_core/resendEmail";
+import { getLatestSubstackPost } from "./_core/substack";
+import {
+  createShopCheckoutSession,
+  getRequestOrigin,
+  getShopProduct,
+  listShopProducts,
+  updateShopProductCopy,
+} from "./_core/stripeCheckout";
 import { storagePut } from "./storage";
 import crypto from "crypto";
 
@@ -755,6 +764,56 @@ export const appRouter = router({
     }),
   }),
 
+  resend: router({
+    sendHelloWorld: dashboardProcedure.mutation(async () => {
+      const data = await sendResendHelloWorldEmail();
+      return { success: true, id: data?.id ?? null };
+    }),
+  }),
+
+  shop: router({
+    listProducts: publicProcedure.query(async () => {
+      return listShopProducts();
+    }),
+    getProduct: publicProcedure.input(z.object({ productId: z.string().min(1) })).query(async ({ input }) => {
+      const product = await getShopProduct(input.productId);
+
+      if (!product) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Product not found" });
+      }
+
+      return product;
+    }),
+    updateProductCopy: dashboardProcedure
+      .input(
+        z.object({
+          productId: z.string().min(1),
+          description: z.string().max(3000),
+          details: z.string().max(5000),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const product = await updateShopProductCopy(input);
+        return { success: true, product };
+      }),
+    createCheckoutSession: publicProcedure
+      .input(z.object({ productId: z.string().min(1), variantId: z.string().min(1) }))
+      .mutation(async ({ input, ctx }) => {
+        try {
+          return createShopCheckoutSession({
+            productId: input.productId,
+            variantId: input.variantId,
+            origin: getRequestOrigin(ctx.req),
+          });
+        } catch (error) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: error instanceof Error ? error.message : "Unable to start checkout.",
+          });
+        }
+      }),
+  }),
+
   // ─── Site Settings ──────────────────────────────────────────────────────
 
   settings: router({
@@ -832,6 +891,17 @@ export const appRouter = router({
       };
 
       return latestVideo;
+    }),
+  }),
+
+  substack: router({
+    getLatestPost: publicProcedure.query(async () => {
+      try {
+        return await getLatestSubstackPost();
+      } catch (err) {
+        console.warn("[Substack] Failed to fetch latest post from RSS feed:", err);
+        return null;
+      }
     }),
   }),
 
