@@ -5,8 +5,7 @@ import { publicProcedure, protectedProcedure, adminProcedure, router } from "./_
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import * as db from "./db";
-import { sendContactEmail } from "./_core/contactEmail";
-import { sendResendHelloWorldEmail } from "./_core/resendEmail";
+import { sendContactNotificationEmail, sendResendHelloWorldEmail } from "./_core/resendEmail";
 import { getLatestSubstackPost } from "./_core/substack";
 import {
   createShopCheckoutSession,
@@ -748,8 +747,8 @@ export const appRouter = router({
       )
       .mutation(async ({ input }) => {
         await db.createContactMessage(input.name, input.email, input.subject, input.message);
-        const emailSent = await sendContactEmail(input);
-        return { success: true, emailSent };
+        const email = await sendContactNotificationEmail(input);
+        return { success: true, emailSent: true, emailId: email?.id ?? null };
       }),
     list: dashboardProcedure.query(async () => {
       return db.getContactMessages();
