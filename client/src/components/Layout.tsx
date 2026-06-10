@@ -3,12 +3,15 @@ import { getLoginUrl } from "@/const";
 import { Link, useLocation } from "wouter";
 import {
   FileText,
+  Globe2,
+  Heart,
   Home,
   LogIn,
   LogOut,
   Menu,
   PenLine,
   Shield,
+  ShoppingBag,
   User,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -35,6 +38,9 @@ const navItems = [
   { label: "About", href: "/about" },
   { label: "Contact", href: "/contact" },
   { label: "Resources", href: "/resources" },
+  { label: "World", href: "/globe" },
+  { label: "Shop", href: "/shop" },
+  { label: "Donate", href: "/donate" },
 ];
 
 const mobileNavItems = [
@@ -42,6 +48,9 @@ const mobileNavItems = [
   { label: "Articles", href: "/articles", icon: FileText },
   { label: "Write Article", href: "/articles/new", icon: PenLine },
   { label: "Resources", href: "/resources", icon: FileText },
+  { label: "World", href: "/globe", icon: Globe2 },
+  { label: "Shop", href: "/shop", icon: ShoppingBag },
+  { label: "Donate", href: "/donate", icon: Heart },
   { label: "About", href: "/about", icon: Shield },
   { label: "Contact", href: "/contact", icon: User },
 ];
@@ -56,7 +65,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   const isActive = (href: string) =>
     location === href ||
-    (href === "/articles" && location.startsWith("/articles"));
+    (href === "/articles" && location.startsWith("/articles")) ||
+    (href === "/globe" && location.startsWith("/globe")) ||
+    (href === "/shop" && location.startsWith("/shop")) ||
+    (href === "/donate" && location.startsWith("/donate"));
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -84,7 +96,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                       isActive(item.href)
                         ? "text-primary bg-primary/10"
                         : "text-muted-foreground hover:text-foreground hover:bg-white/5"
-                    }`}
+                    } ${item.href === "/donate" ? "nav-donate-glow" : ""}`}
                   >
                     {item.label}
                   </span>
@@ -200,7 +212,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                                   isActive(item.href)
                                     ? "bg-primary/15 text-primary"
                                     : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
-                                }`}
+                                } ${item.href === "/donate" ? "nav-donate-glow" : ""}`}
                               >
                                 <Icon className="w-4 h-4 shrink-0" />
                                 {item.label}

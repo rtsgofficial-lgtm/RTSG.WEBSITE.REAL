@@ -1,6 +1,6 @@
 import { trpc } from "@/lib/trpc";
 import { ArrowLeft, ArrowUpRight, ChevronDown, Loader2, ShoppingBag } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type PointerEvent } from "react";
 import { toast } from "sonner";
 import { Link, useRoute } from "wouter";
 
@@ -61,6 +61,27 @@ export default function ShopProduct() {
     createCheckout.mutate({ productId: product.id, variantId: selectedVariant.id });
   };
 
+  const handleGalleryTilt = (event: PointerEvent<HTMLElement>) => {
+    const card = event.currentTarget;
+    const rect = card.getBoundingClientRect();
+    const x = (event.clientX - rect.left) / rect.width - 0.5;
+    const y = (event.clientY - rect.top) / rect.height - 0.5;
+
+    card.style.setProperty("--card-tilt-x", `${(-y * 9).toFixed(2)}deg`);
+    card.style.setProperty("--card-tilt-y", `${(x * 11).toFixed(2)}deg`);
+    card.style.setProperty("--tilt-shift-x", `${(x * 18).toFixed(2)}px`);
+    card.style.setProperty("--tilt-shift-y", `${(y * 16).toFixed(2)}px`);
+  };
+
+  const resetGalleryTilt = (event: PointerEvent<HTMLElement>) => {
+    const card = event.currentTarget;
+
+    card.style.setProperty("--card-tilt-x", "0deg");
+    card.style.setProperty("--card-tilt-y", "0deg");
+    card.style.setProperty("--tilt-shift-x", "0px");
+    card.style.setProperty("--tilt-shift-y", "0px");
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-[70vh] grid place-items-center">
@@ -113,7 +134,11 @@ export default function ShopProduct() {
         </Link>
 
         <div className="shop-detail-layout">
-          <section className="shop-detail-gallery">
+          <section
+            className="shop-detail-gallery"
+            onPointerMove={handleGalleryTilt}
+            onPointerLeave={resetGalleryTilt}
+          >
             <div className="shop-detail-hero-image">
               <img src={selectedImageUrl} alt={`${product.name} ${selectedVariant?.name ?? ""}`} />
             </div>

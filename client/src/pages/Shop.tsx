@@ -164,7 +164,7 @@ export default function Shop() {
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between gap-5">
+                <div className="shop-product-actions flex items-center justify-between gap-5">
                   <div>
                     <p className="text-base font-normal text-white sm:text-lg">
                       {product.price}

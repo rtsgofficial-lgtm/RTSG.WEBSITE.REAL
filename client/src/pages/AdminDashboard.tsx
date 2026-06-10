@@ -21,12 +21,29 @@ import {
   Settings,
   MessageSquare,
   ShoppingBag,
+  Globe2,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 
-type Tab = "users" | "pages" | "messages" | "articles" | "shop" | "settings";
+type Tab = "users" | "pages" | "messages" | "articles" | "shop" | "world" | "settings";
+
+type WorldProfileForm = {
+  profileId: string;
+  officialName: string;
+  displayName: string;
+  population: string;
+  region: string;
+  alliance: string;
+  militaryStrength: string;
+  rulingParty: string;
+  communistParty: string;
+  communistPartyUrl: string;
+  researchTitle: string;
+  researchUrl: string;
+  description: string;
+};
 
 export default function AdminDashboard() {
   const [, navigate] = useLocation();
@@ -83,6 +100,7 @@ export default function AdminDashboard() {
     { id: "messages", label: "Messages", icon: <Mail className="w-4 h-4" /> },
     { id: "articles", label: "Articles", icon: <PenLine className="w-4 h-4" /> },
     { id: "shop", label: "Shop", icon: <ShoppingBag className="w-4 h-4" /> },
+    { id: "world", label: "World", icon: <Globe2 className="w-4 h-4" /> },
     { id: "settings", label: "Settings", icon: <Settings className="w-4 h-4" /> },
   ];
 
@@ -138,6 +156,7 @@ export default function AdminDashboard() {
         {activeTab === "messages" && <MessagesPanel />}
         {activeTab === "articles" && <ArticlesPanel />}
         {activeTab === "shop" && <ShopPanel />}
+        {activeTab === "world" && <WorldPanel />}
         {activeTab === "settings" && <SettingsPanel token={token} />}
       </div>
     </div>
@@ -735,6 +754,280 @@ function ShopPanel() {
                     </div>
                   ))}
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── World Panel ───────────────────────────────────────────────────────────
+
+function WorldPanel() {
+  const { data: profiles, refetch } = trpc.world.listProfiles.useQuery();
+  const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
+  const [form, setForm] = useState<WorldProfileForm>({
+    profileId: "",
+    officialName: "",
+    displayName: "",
+    population: "",
+    region: "",
+    alliance: "",
+    militaryStrength: "",
+    rulingParty: "",
+    communistParty: "",
+    communistPartyUrl: "",
+    researchTitle: "",
+    researchUrl: "",
+    description: "",
+  });
+
+  const updateProfile = trpc.world.updateProfile.useMutation({
+    onSuccess: () => {
+      refetch();
+      toast.success("World profile updated");
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const editingProfile = profiles?.find((profile) => profile.id === editingProfileId) ?? profiles?.[0] ?? null;
+
+  useEffect(() => {
+    if (!editingProfile) return;
+    setEditingProfileId(editingProfile.id);
+    setForm({
+      profileId: editingProfile.id,
+      officialName: editingProfile.officialName,
+      displayName: editingProfile.displayName,
+      population: editingProfile.population,
+      region: editingProfile.region,
+      alliance: editingProfile.alliance,
+      militaryStrength: editingProfile.militaryStrength,
+      rulingParty: editingProfile.rulingParty,
+      communistParty: editingProfile.communistParty,
+      communistPartyUrl: editingProfile.communistPartyUrl ?? "",
+      researchTitle: editingProfile.researchTitle ?? "",
+      researchUrl: editingProfile.researchUrl ?? "",
+      description: editingProfile.description,
+    });
+  }, [editingProfile?.id]);
+
+  const updateField = (field: keyof WorldProfileForm, value: string) => {
+    setForm((current) => ({ ...current, [field]: value }));
+  };
+
+  const handleSave = () => {
+    if (!editingProfile) return;
+    updateProfile.mutate(form);
+  };
+
+  const inputClass =
+    "w-full px-4 py-3 rounded-xl bg-black/20 border border-white/10 text-foreground text-sm focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30 transition-all";
+
+  return (
+    <div className="animate-fade-in">
+      <h2 className="text-xl font-bold text-foreground mb-4">World</h2>
+      <p className="text-sm text-muted-foreground mb-6">
+        Edit the country descriptions and details shown on the public interactive globe.
+      </p>
+
+      {!editingProfile ? (
+        <div className="glass rounded-2xl p-12 text-center">
+          <Globe2 className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
+          <p className="text-muted-foreground">No world profiles configured.</p>
+        </div>
+      ) : (
+        <div className="grid gap-6 lg:grid-cols-[18rem_1fr]">
+          <div className="space-y-3">
+            {profiles?.map((profile) => (
+              <button
+                key={profile.id}
+                type="button"
+                onClick={() => setEditingProfileId(profile.id)}
+                className={`glass w-full rounded-2xl p-4 text-left transition-colors ${
+                  editingProfile.id === profile.id ? "border-primary/30 bg-primary/10" : "hover:bg-white/[0.03]"
+                }`}
+              >
+                <p className="text-sm font-semibold text-foreground">{profile.displayName}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{profile.officialName}</p>
+                <p className="mt-3 text-[11px] uppercase tracking-wider text-white/34">
+                  {profile.tag ?? (profile.iso3s.length > 1 ? "Territory group" : profile.iso3s[0])}
+                </p>
+              </button>
+            ))}
+          </div>
+
+          <div className="glass rounded-2xl p-6">
+            <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-foreground">{editingProfile.officialName}</h3>
+                <p className="text-sm text-muted-foreground">{editingProfile.region}</p>
+                <a
+                  href="/globe"
+                  className="mt-2 inline-flex items-center gap-2 text-xs font-medium text-primary hover:text-primary/80"
+                >
+                  <Eye className="w-3 h-3" />
+                  View public globe page
+                </a>
+              </div>
+              <Button
+                onClick={handleSave}
+                disabled={updateProfile.isPending}
+                className="rounded-xl gap-2 bg-primary hover:bg-primary/90 text-primary-foreground"
+              >
+                <Save className="w-4 h-4" />
+                {updateProfile.isPending ? "Saving..." : "Save Country"}
+              </Button>
+            </div>
+
+            <div className="grid gap-5">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2 block">
+                    Official Name
+                  </label>
+                  <input
+                    value={form.officialName}
+                    onChange={(event) => updateField("officialName", event.target.value)}
+                    maxLength={200}
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2 block">
+                    Display Name
+                  </label>
+                  <input
+                    value={form.displayName}
+                    onChange={(event) => updateField("displayName", event.target.value)}
+                    maxLength={120}
+                    className={inputClass}
+                  />
+                </div>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2 block">
+                    Population
+                  </label>
+                  <input
+                    value={form.population}
+                    onChange={(event) => updateField("population", event.target.value)}
+                    maxLength={500}
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2 block">
+                    Region
+                  </label>
+                  <input
+                    value={form.region}
+                    onChange={(event) => updateField("region", event.target.value)}
+                    maxLength={500}
+                    className={inputClass}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2 block">
+                  Alliance
+                </label>
+                <input
+                  value={form.alliance}
+                  onChange={(event) => updateField("alliance", event.target.value)}
+                  maxLength={1000}
+                  className={inputClass}
+                />
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2 block">
+                    Research Title
+                  </label>
+                  <input
+                    value={form.researchTitle}
+                    onChange={(event) => updateField("researchTitle", event.target.value)}
+                    maxLength={300}
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2 block">
+                    Research Link
+                  </label>
+                  <input
+                    value={form.researchUrl}
+                    onChange={(event) => updateField("researchUrl", event.target.value)}
+                    maxLength={500}
+                    className={inputClass}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2 block">
+                  Military Strength
+                </label>
+                <textarea
+                  value={form.militaryStrength}
+                  onChange={(event) => updateField("militaryStrength", event.target.value)}
+                  rows={3}
+                  maxLength={1200}
+                  className={`${inputClass} resize-none`}
+                />
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2 block">
+                    Ruling Party
+                  </label>
+                  <textarea
+                    value={form.rulingParty}
+                    onChange={(event) => updateField("rulingParty", event.target.value)}
+                    rows={3}
+                    maxLength={1000}
+                    className={`${inputClass} resize-none`}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2 block">
+                    Communist Party
+                  </label>
+                  <input
+                    value={form.communistParty}
+                    onChange={(event) => updateField("communistParty", event.target.value)}
+                    maxLength={500}
+                    className={inputClass}
+                  />
+                  <input
+                    value={form.communistPartyUrl}
+                    onChange={(event) => updateField("communistPartyUrl", event.target.value)}
+                    maxLength={500}
+                    placeholder="Party website URL"
+                    className={`${inputClass} mt-3`}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2 block">
+                  Description
+                </label>
+                <textarea
+                  value={form.description}
+                  onChange={(event) => updateField("description", event.target.value)}
+                  rows={7}
+                  maxLength={3000}
+                  className={`${inputClass} resize-none`}
+                />
+                <p className="mt-2 text-xs text-muted-foreground">{form.description.length}/3000</p>
               </div>
             </div>
           </div>

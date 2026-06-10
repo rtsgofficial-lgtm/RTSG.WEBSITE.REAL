@@ -6,7 +6,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { useAuth } from "./_core/hooks/useAuth";
 import { trpc } from "./lib/trpc";
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { X, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Home from "./pages/Home";
@@ -17,30 +17,51 @@ import ArticleEdit from "./pages/ArticleEdit";
 import About from "./pages/About";
 import Contact from "./pages/Contact";
 import Resources from "./pages/Resources";
+import PdfReader from "./pages/PdfReader";
 import Shop from "./pages/Shop";
 import ShopProduct from "./pages/ShopProduct";
+import Donate from "./pages/Donate";
+import DonateStatus from "./pages/DonateStatus";
 import AdminLogin from "./pages/AdminLogin";
 import AdminDashboard from "./pages/AdminDashboard";
 import Profile from "./pages/Profile";
 import Layout from "./components/Layout";
 import UnderConstruction from "./pages/UnderConstruction";
 import Login from "./pages/Login";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
 
+const Globe = lazy(() => import("./pages/Globe"));
+
+function RouteFallback() {
+  return (
+    <div className="min-h-[80vh] flex items-center justify-center">
+      <div className="w-8 h-8 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+    </div>
+  );
+}
 
 function AdminRouter() {
   return (
     <Switch>
       <Route path="/" component={Home} />
       <Route path="/login" component={Login} />
+      <Route path="/forgot-password" component={ForgotPassword} />
+      <Route path="/reset-password" component={ResetPassword} />
       <Route path="/articles" component={Articles} />
       <Route path="/articles/new" component={ArticleNew} />
       <Route path="/articles/:id/edit" component={ArticleEdit} />
       <Route path="/articles/:id" component={ArticleDetail} />
       <Route path="/about" component={About} />
       <Route path="/contact" component={Contact} />
+      <Route path="/resources/pdf" component={PdfReader} />
       <Route path="/resources" component={Resources} />
       <Route path="/shop/:productId" component={ShopProduct} />
       <Route path="/shop" component={Shop} />
+      <Route path="/donate/success" component={DonateStatus} />
+      <Route path="/donate/cancel" component={DonateStatus} />
+      <Route path="/donate" component={Donate} />
+      <Route path="/globe" component={Globe} />
       <Route path="/profile" component={Profile} />
       <Route path="/admin" component={AdminLogin} />
       <Route path="/admin/dashboard" component={AdminDashboard} />
@@ -55,15 +76,22 @@ function PublicRouter() {
     <Switch>
       <Route path="/" component={Home} />
       <Route path="/login" component={Login} />
+      <Route path="/forgot-password" component={ForgotPassword} />
+      <Route path="/reset-password" component={ResetPassword} />
       <Route path="/articles" component={Articles} />
       <Route path="/articles/new" component={ArticleNew} />
       <Route path="/articles/:id/edit" component={ArticleEdit} />
       <Route path="/articles/:id" component={ArticleDetail} />
       <Route path="/about" component={About} />
       <Route path="/contact" component={Contact} />
+      <Route path="/resources/pdf" component={PdfReader} />
       <Route path="/resources" component={Resources} />
       <Route path="/shop/:productId" component={ShopProduct} />
       <Route path="/shop" component={Shop} />
+      <Route path="/donate/success" component={DonateStatus} />
+      <Route path="/donate/cancel" component={DonateStatus} />
+      <Route path="/donate" component={Donate} />
+      <Route path="/globe" component={Globe} />
       <Route path="/profile" component={Profile} />
       <Route path="/admin" component={AdminLogin} />
       <Route path="/admin/dashboard" component={AdminDashboard} />
@@ -77,8 +105,14 @@ function ConstructionRouter() {
   return (
     <Switch>
       <Route path="/login" component={Login} />
+      <Route path="/forgot-password" component={ForgotPassword} />
+      <Route path="/reset-password" component={ResetPassword} />
       <Route path="/shop/:productId" component={ShopProduct} />
       <Route path="/shop" component={Shop} />
+      <Route path="/donate/success" component={DonateStatus} />
+      <Route path="/donate/cancel" component={DonateStatus} />
+      <Route path="/donate" component={Donate} />
+      <Route path="/globe" component={Globe} />
       <Route path="/admin" component={AdminLogin} />
       <Route path="/admin/dashboard" component={AdminDashboard} />
       <Route component={UnderConstruction} />
@@ -176,7 +210,9 @@ function App() {
           <Toaster />
           <SiteWidePopup />
           <Layout>
-            <AppRouter />
+            <Suspense fallback={<RouteFallback />}>
+              <AppRouter />
+            </Suspense>
           </Layout>
         </TooltipProvider>
       </ThemeProvider>

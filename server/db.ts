@@ -4,6 +4,9 @@ import {
   InsertUser,
   users,
   userCredentials,
+  passwordResetTokens,
+  loginRateLimits,
+  passwordResetRateLimits,
   adminCredentials,
   articles,
   comments,
@@ -211,6 +214,185 @@ export async function createUserCredential(input: {
     email: normalizeEmail(input.email),
     passwordHash: input.passwordHash,
   });
+}
+
+export async function updateUserCredentialPassword(userId: number, passwordHash: string) {
+  const database = await getDb();
+  if (!database) {
+    throw new Error("Database not available");
+  }
+
+  await database
+    .update(userCredentials)
+    .set({ passwordHash })
+    .where(eq(userCredentials.userId, userId));
+}
+
+export async function getLoginRateLimit(email: string) {
+  const database = await getDb();
+  if (!database) return null;
+
+  const result = await database
+    .select()
+    .from(loginRateLimits)
+    .where(eq(loginRateLimits.email, normalizeEmail(email)))
+    .limit(1);
+
+  return result[0] ?? null;
+}
+
+export async function recordFailedLoginAttempt(email: string, maxAttempts: number, lockoutMs: number) {
+  const database = await getDb();
+  if (!database) return null;
+
+  const normalizedEmail = normalizeEmail(email);
+  const existing = await getLoginRateLimit(normalizedEmail);
+  const now = new Date();
+  const existingLock = existing?.lockedUntil;
+
+  if (existingLock && existingLock.getTime() > now.getTime()) {
+    return existing;
+  }
+
+  const nextFailedAttemptCount = (existing?.failedAttemptCount ?? 0) + 1;
+  const lockedUntil =
+    nextFailedAttemptCount >= maxAttempts ? new Date(now.getTime() + lockoutMs) : null;
+
+  if (existing) {
+    await database
+      .update(loginRateLimits)
+      .set({
+        failedAttemptCount: nextFailedAttemptCount,
+        lockedUntil,
+        lastFailedAt: now,
+      })
+      .where(eq(loginRateLimits.email, normalizedEmail));
+  } else {
+    await database.insert(loginRateLimits).values({
+      email: normalizedEmail,
+      failedAttemptCount: nextFailedAttemptCount,
+      lockedUntil,
+      lastFailedAt: now,
+    });
+  }
+
+  return {
+    id: existing?.id ?? 0,
+    email: normalizedEmail,
+    failedAttemptCount: nextFailedAttemptCount,
+    lockedUntil,
+    lastFailedAt: now,
+    updatedAt: now,
+  };
+}
+
+export async function clearLoginFailures(email: string) {
+  const database = await getDb();
+  if (!database) return;
+
+  await database
+    .update(loginRateLimits)
+    .set({ failedAttemptCount: 0, lockedUntil: null, lastFailedAt: null })
+    .where(eq(loginRateLimits.email, normalizeEmail(email)));
+}
+
+export async function shouldAllowPasswordResetRequest(
+  email: string,
+  maxRequests: number,
+  windowMs: number
+) {
+  const database = await getDb();
+  if (!database) return false;
+
+  const normalizedEmail = normalizeEmail(email);
+  const now = new Date();
+  const result = await database
+    .select()
+    .from(passwordResetRateLimits)
+    .where(eq(passwordResetRateLimits.email, normalizedEmail))
+    .limit(1);
+
+  const existing = result[0];
+  const windowStartedAt = existing?.windowStartedAt;
+  const isInsideWindow = windowStartedAt
+    ? now.getTime() - windowStartedAt.getTime() <= windowMs
+    : false;
+
+  if (!existing || !isInsideWindow) {
+    if (existing) {
+      await database
+        .update(passwordResetRateLimits)
+        .set({
+          requestCount: 1,
+          windowStartedAt: now,
+          lastRequestedAt: now,
+        })
+        .where(eq(passwordResetRateLimits.email, normalizedEmail));
+    } else {
+      await database.insert(passwordResetRateLimits).values({
+        email: normalizedEmail,
+        requestCount: 1,
+        windowStartedAt: now,
+        lastRequestedAt: now,
+      });
+    }
+
+    return true;
+  }
+
+  const nextRequestCount = existing.requestCount + 1;
+
+  await database
+    .update(passwordResetRateLimits)
+    .set({
+      requestCount: nextRequestCount,
+      lastRequestedAt: now,
+    })
+    .where(eq(passwordResetRateLimits.email, normalizedEmail));
+
+  return nextRequestCount <= maxRequests;
+}
+
+export async function createPasswordResetToken(input: {
+  userId: number;
+  email: string;
+  tokenHash: string;
+  expiresAt: Date;
+}) {
+  const database = await getDb();
+  if (!database) {
+    throw new Error("Database not available");
+  }
+
+  await database.insert(passwordResetTokens).values({
+    userId: input.userId,
+    email: normalizeEmail(input.email),
+    tokenHash: input.tokenHash,
+    expiresAt: input.expiresAt,
+  });
+}
+
+export async function getPasswordResetTokenByHash(tokenHash: string) {
+  const database = await getDb();
+  if (!database) return null;
+
+  const result = await database
+    .select()
+    .from(passwordResetTokens)
+    .where(eq(passwordResetTokens.tokenHash, tokenHash))
+    .limit(1);
+
+  return result[0] ?? null;
+}
+
+export async function markPasswordResetTokenUsed(tokenId: number) {
+  const database = await getDb();
+  if (!database) return;
+
+  await database
+    .update(passwordResetTokens)
+    .set({ usedAt: new Date() })
+    .where(eq(passwordResetTokens.id, tokenId));
 }
 
 // ─── Admin Credentials ──────────────────────────────────────────────────────

@@ -177,6 +177,59 @@ export async function createShopCheckoutSession(input: {
   };
 }
 
+export async function createDonationCheckoutSession(input: {
+  amountCents: number;
+  isMonthly: boolean;
+  origin: string;
+}) {
+  const amountCents = Math.round(input.amountCents);
+
+  if (!Number.isSafeInteger(amountCents) || amountCents < 100 || amountCents > 1_000_000) {
+    throw new Error("Choose a donation amount between $1 and $10,000.");
+  }
+
+  const stripe = getStripeClient();
+  const session = await stripe.checkout.sessions.create({
+    mode: input.isMonthly ? "subscription" : "payment",
+    billing_address_collection: "auto",
+    customer_creation: input.isMonthly ? undefined : "if_required",
+    line_items: [
+      {
+        quantity: 1,
+        price_data: {
+          currency: "usd",
+          unit_amount: amountCents,
+          ...(input.isMonthly
+            ? {
+                recurring: {
+                  interval: "month" as const,
+                },
+              }
+            : {}),
+          product_data: {
+            name: input.isMonthly ? "Monthly RTSG Support" : "One-time RTSG Support",
+            description: input.isMonthly
+              ? "Monthly contribution supporting RTSG."
+              : "One-time contribution supporting RTSG.",
+          },
+        },
+      },
+    ],
+    metadata: {
+      checkoutType: "donation",
+      donationInterval: input.isMonthly ? "monthly" : "one_time",
+      amountCents: String(amountCents),
+    },
+    success_url: `${input.origin}/donate/success?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${input.origin}/donate/cancel`,
+  });
+
+  return {
+    id: session.id,
+    url: session.url,
+  };
+}
+
 export function getRequestOrigin(req: Request) {
   const forwardedProto = req.headers["x-forwarded-proto"];
   const proto = Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto;
@@ -275,6 +328,17 @@ export async function handleStripeWebhook(req: Request, res: Response) {
   if (event.type === "checkout.session.completed") {
     const eventSession = event.data.object;
     const session = await stripe.checkout.sessions.retrieve(eventSession.id);
+
+    if (session.metadata?.checkoutType === "donation") {
+      console.log("[Stripe] Donation checkout completed", {
+        sessionId: eventSession.id,
+        donationInterval: session.metadata?.donationInterval,
+        amountCents: session.metadata?.amountCents,
+      });
+      res.json({ received: true });
+      return;
+    }
+
     const order = await createPrintfulDraftOrderFromStripeSession(session);
     const emailResult = await sendCheckoutOrderConfirmation(session, order).catch((error) => {
       console.error("[Resend] Failed to send shop order confirmation", {

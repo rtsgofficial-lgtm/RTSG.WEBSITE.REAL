@@ -1,17 +1,17 @@
 import { trpc } from "@/lib/trpc";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Streamdown } from "streamdown";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useState, useMemo, useEffect } from "react";
-import { Plus, Trash2, ExternalLink, Search, Upload } from "lucide-react";
+import { Plus, Trash2, ExternalLink, Search, Upload, Download } from "lucide-react";
 import { toast } from "sonner";
 
 
 const VIDEO_SRC = "https://rs.rtsg.org/glossy-red-liquid-morphing-abstract-background-2026-01-28-03-03-51-utc_2d2a24cb.mp4";
 const GLASS_SHAPE_LEFT_SRC = "https://rs.rtsg.org/24.png";
 const GLASS_SHAPE_RIGHT_SRC = "https://rs.rtsg.org/10.png";
+const RTSG_LOGO_SRC = "https://rs.rtsg.org/whiteandredrtsg_c075c4b3.png";
 
 export default function Resources() {
 
@@ -27,6 +27,12 @@ export default function Resources() {
   const [searchQuery, setSearchQuery] = useState("");
   const [uploadProgress, setUploadProgress] = useState(0);
   const [scrollOffset, setScrollOffset] = useState(0);
+  const [showPdfLoader, setShowPdfLoader] = useState(true);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setShowPdfLoader(false), 1900);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -121,9 +127,28 @@ export default function Resources() {
   };
 
   const isLoading = pageLoading || pdfLoading;
+  const shouldShowPdfLoader = showPdfLoader || isLoading;
 
   return (
     <div className="relative min-h-screen overflow-hidden">
+      {shouldShowPdfLoader && (
+        <div className="resources-terminal-loader" role="status" aria-live="polite">
+          <div className="resources-terminal-window">
+            <div className="resources-terminal-header">
+              <span />
+              <span />
+              <span />
+              <strong>RTSG_RESOURCES</strong>
+            </div>
+            <div className="resources-terminal-body">
+              <img src={RTSG_LOGO_SRC} alt="RTSG" className="resources-terminal-logo" />
+              <p>Loading PDFs...</p>
+              <span aria-hidden="true">_</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Ambient background video */}
       <video
         autoPlay
@@ -201,12 +226,7 @@ export default function Resources() {
       {/* Page content */}
       <div className="container max-w-3xl mx-auto py-8 sm:py-12 relative" style={{ zIndex: 3 }}>
         {isLoading ? (
-          <div className="space-y-4">
-            <Skeleton className="h-10 w-64 bg-white/5" />
-            <Skeleton className="h-4 w-full bg-white/5" />
-            <Skeleton className="h-4 w-3/4 bg-white/5" />
-            <Skeleton className="h-4 w-5/6 bg-white/5" />
-          </div>
+          <div className="min-h-[420px]" aria-hidden="true" />
         ) : page ? (
           <div className="space-y-8">
             {/* Main content */}
@@ -302,13 +322,22 @@ export default function Resources() {
                       className="flex items-center justify-between p-3 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 transition-colors"
                     >
                       <a
-                        href={pdf.pdfUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                        href={`/resources/pdf?url=${encodeURIComponent(pdf.pdfUrl)}&title=${encodeURIComponent(pdf.title)}`}
                         className="glitch-hover flex items-center gap-2 text-primary hover:underline flex-1"
                       >
                         <ExternalLink className="w-4 h-4" />
                         <span>{pdf.title}</span>
+                      </a>
+                      <a
+                        href={pdf.pdfUrl}
+                        download
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mr-1 grid h-8 w-8 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground"
+                        title="Download PDF"
+                        aria-label={`Download ${pdf.title}`}
+                      >
+                        <Download className="h-4 w-4" />
                       </a>
                       {isAdmin && (
                         <Button

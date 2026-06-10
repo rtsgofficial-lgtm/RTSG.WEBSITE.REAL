@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, boolean } from "drizzle-orm/mysql-core";
+import { boolean, int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -28,6 +28,38 @@ export const userCredentials = mysqlTable("user_credentials", {
 
 export type UserCredential = typeof userCredentials.$inferSelect;
 export type InsertUserCredential = typeof userCredentials.$inferInsert;
+
+export const passwordResetTokens = mysqlTable("password_reset_tokens", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  email: varchar("email", { length: 320 }).notNull(),
+  tokenHash: varchar("tokenHash", { length: 64 }).notNull().unique(),
+  expiresAt: timestamp("expiresAt").notNull(),
+  usedAt: timestamp("usedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const loginRateLimits = mysqlTable("login_rate_limits", {
+  id: int("id").autoincrement().primaryKey(),
+  email: varchar("email", { length: 320 }).notNull().unique(),
+  failedAttemptCount: int("failedAttemptCount").default(0).notNull(),
+  lockedUntil: timestamp("lockedUntil"),
+  lastFailedAt: timestamp("lastFailedAt"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const passwordResetRateLimits = mysqlTable("password_reset_rate_limits", {
+  id: int("id").autoincrement().primaryKey(),
+  email: varchar("email", { length: 320 }).notNull().unique(),
+  requestCount: int("requestCount").default(0).notNull(),
+  windowStartedAt: timestamp("windowStartedAt").notNull(),
+  lastRequestedAt: timestamp("lastRequestedAt"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
+export type LoginRateLimit = typeof loginRateLimits.$inferSelect;
+export type PasswordResetRateLimit = typeof passwordResetRateLimits.$inferSelect;
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;

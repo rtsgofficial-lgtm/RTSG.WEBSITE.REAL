@@ -13,4 +13,10 @@ export const ENV = {
   printfulApiKey: process.env.PRINTFUL_API ?? "",
   printfulStoreId: process.env.PRINTFUL_STORE_ID ?? "18281109",
   substackFeedUrl: process.env.SUBSTACK_FEED_URL ?? "https://rtsg.media/feed",
+  siteUrl: (
+    process.env.SITE_URL ??
+    process.env.PUBLIC_SITE_URL ??
+    process.env.VITE_SITE_URL ??
+    "https://rtsg.org"
+  ).replace(/\/+$/, ""),
 };

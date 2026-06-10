@@ -118,6 +118,14 @@ export default function Login() {
                 placeholder="••••••••"
               />
             </div>
+            {mode === "login" && (
+              <a
+                href="/forgot-password"
+                className="mt-2 inline-block text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Forgot password?
+              </a>
+            )}
           </div>
 
           <Button

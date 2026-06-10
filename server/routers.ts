@@ -1,13 +1,23 @@
 import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
+import {
+  EDITABLE_GLOBE_PROFILE_FIELDS,
+  GLOBE_PROFILES,
+  type EditableGlobeProfileField,
+} from "@shared/globeProfiles";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, adminProcedure, router } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import * as db from "./db";
-import { sendContactNotificationEmail, sendResendHelloWorldEmail } from "./_core/resendEmail";
+import {
+  sendContactNotificationEmail,
+  sendPasswordResetEmail,
+  sendResendHelloWorldEmail,
+} from "./_core/resendEmail";
 import { getLatestSubstackPost } from "./_core/substack";
 import {
+  createDonationCheckoutSession,
   createShopCheckoutSession,
   getRequestOrigin,
   getShopProduct,
@@ -16,6 +26,7 @@ import {
 } from "./_core/stripeCheckout";
 import { storagePut } from "./storage";
 import crypto from "crypto";
+import { ENV } from "./_core/env";
 
 // ─── Role-based middleware ──────────────────────────────────────────────────
 
@@ -26,6 +37,46 @@ const COMMENT_SPAM_WINDOW_MS = 60 * 1000;
 const COMMENT_SPAM_LIMIT = 8;
 const COMBINED_SPAM_WINDOW_MS = 5 * 60 * 1000;
 const COMBINED_SPAM_LIMIT = 15;
+const LOGIN_MAX_FAILED_ATTEMPTS = 5;
+const AUTH_LOCKOUT_MS = 30 * 60 * 1000;
+const ADMIN_LOGIN_MAX_FAILED_ATTEMPTS = 3;
+const ADMIN_AUTH_LOCKOUT_MS = 60 * 60 * 1000;
+const PASSWORD_RESET_TOKEN_MS = 30 * 60 * 1000;
+const PASSWORD_RESET_MAX_REQUESTS = 3;
+const PASSWORD_RESET_WINDOW_MS = 30 * 60 * 1000;
+const PASSWORD_RESET_RESPONSE =
+  "If an account exists for that email, a reset link will be sent shortly.";
+
+function getWorldProfileSettingKey(profileId: string, field: EditableGlobeProfileField) {
+  return `worldProfile:${profileId}:${field}`;
+}
+
+async function listEditableGlobeProfiles() {
+  return Promise.all(
+    GLOBE_PROFILES.map(async (profile) => {
+      const entries = await Promise.all(
+        EDITABLE_GLOBE_PROFILE_FIELDS.map(async (field) => {
+          const value = await db.getSetting(getWorldProfileSettingKey(profile.id, field));
+          return [field, value] as const;
+        })
+      );
+      const overrides = entries.reduce<Partial<Record<EditableGlobeProfileField, string>>>(
+        (nextOverrides, [field, value]) => {
+          if (value !== undefined) {
+            nextOverrides[field] = value;
+          }
+          return nextOverrides;
+        },
+        {}
+      );
+
+      return {
+        ...profile,
+        ...overrides,
+      };
+    })
+  );
+}
 
 type PostKind = "article" | "comment";
 type SpamTracker = { articleTimes: number[]; commentTimes: number[] };
@@ -121,6 +172,20 @@ function verifyLocalPassword(password: string, storedHash: string): boolean {
   return crypto.timingSafeEqual(expected, actual);
 }
 
+function hashResetToken(token: string): string {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+function createPasswordResetUrl(token: string): string {
+  const baseUrl = process.env.PASSWORD_RESET_BASE_URL || ENV.siteUrl;
+  return `${baseUrl.replace(/\/+$/, "")}/reset-password?token=${encodeURIComponent(token)}`;
+}
+
+function formatLockoutMessage(lockedUntil: Date) {
+  const minutes = Math.max(1, Math.ceil((lockedUntil.getTime() - Date.now()) / (60 * 1000)));
+  return `Too many failed login attempts. Please wait ${minutes} minute${minutes === 1 ? "" : "s"} before trying again.`;
+}
+
 async function setSessionCookie(ctx: any, user: NonNullable<Awaited<ReturnType<typeof db.getUserById>>>) {
   const sessionToken = await import("./_core/sdk").then(({ sdk }) =>
     sdk.createSessionToken(user.openId, {
@@ -140,6 +205,51 @@ async function setSessionCookie(ctx: any, user: NonNullable<Awaited<ReturnType<t
 // ─── Admin session tokens (in-memory store for server-side validation) ──────
 
 const adminSessions = new Map<string, { username: string; createdAt: number }>();
+const adminLoginAttempts = new Map<
+  string,
+  { failedAttemptCount: number; lockedUntil: number | null; lastFailedAt: number }
+>();
+
+function normalizeAdminUsername(username: string) {
+  return username.trim().toLowerCase();
+}
+
+function getAdminLoginLockout(username: string) {
+  const key = normalizeAdminUsername(username);
+  const attempt = adminLoginAttempts.get(key);
+
+  if (!attempt?.lockedUntil) return null;
+
+  if (attempt.lockedUntil <= Date.now()) {
+    adminLoginAttempts.delete(key);
+    return null;
+  }
+
+  return new Date(attempt.lockedUntil);
+}
+
+function recordFailedAdminLogin(username: string) {
+  const key = normalizeAdminUsername(username);
+  const now = Date.now();
+  const existing = adminLoginAttempts.get(key);
+  const failedAttemptCount = (existing?.failedAttemptCount ?? 0) + 1;
+  const lockedUntil =
+    failedAttemptCount >= ADMIN_LOGIN_MAX_FAILED_ATTEMPTS
+      ? now + ADMIN_AUTH_LOCKOUT_MS
+      : null;
+
+  adminLoginAttempts.set(key, {
+    failedAttemptCount,
+    lockedUntil,
+    lastFailedAt: now,
+  });
+
+  return lockedUntil ? new Date(lockedUntil) : null;
+}
+
+function clearFailedAdminLogins(username: string) {
+  adminLoginAttempts.delete(normalizeAdminUsername(username));
+}
 
 function cleanExpiredSessions() {
   const now = Date.now();
@@ -312,6 +422,27 @@ async function fetchLatestYouTubeVideoFromApi(): Promise<LatestYouTubeVideo | nu
   };
 }
 
+async function fetchYouTubeOEmbed(videoId: string): Promise<{ title: string | null; thumbnail: string | null }> {
+  const url = new URL("https://www.youtube.com/oembed");
+  url.searchParams.set("url", `https://www.youtube.com/watch?v=${videoId}`);
+  url.searchParams.set("format", "json");
+
+  try {
+    const data = await fetchJson<{
+      title?: string;
+      thumbnail_url?: string;
+    }>(url);
+
+    return {
+      title: data.title || null,
+      thumbnail: data.thumbnail_url || null,
+    };
+  } catch (err) {
+    console.warn("[YouTube] Failed to fetch manual video oEmbed metadata:", err);
+    return { title: null, thumbnail: null };
+  }
+}
+
 async function getManualFeaturedVideo(): Promise<LatestYouTubeVideo | null> {
   const configuredUrl = await db.getSetting("featuredVideoUrl");
 
@@ -325,10 +456,12 @@ async function getManualFeaturedVideo(): Promise<LatestYouTubeVideo | null> {
     return null;
   }
 
+  const metadata = await fetchYouTubeOEmbed(videoId);
+
   return {
     videoId,
-    title: null,
-    thumbnail: null,
+    title: metadata.title,
+    thumbnail: metadata.thumbnail,
     publishedTimeText: null,
     embedUrl: `https://www.youtube.com/embed/${videoId}`,
     source: "manual",
@@ -352,88 +485,191 @@ export const appRouter = router({
   system: systemRouter,
 
   auth: router({
-  register: publicProcedure
-    .input(
-      z.object({
-        name: z.string().min(1).max(100),
-        email: z.string().email(),
-        password: z.string().min(8),
-      })
-    )
-    .mutation(async ({ input, ctx }) => {
-      const email = normalizeEmail(input.email);
+    register: publicProcedure
+      .input(
+        z.object({
+          name: z.string().min(1).max(100),
+          email: z.string().email(),
+          password: z.string().min(8),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const email = normalizeEmail(input.email);
 
-      const existingCredential = await db.getUserCredentialByEmail(email);
+        const existingCredential = await db.getUserCredentialByEmail(email);
 
-      if (existingCredential) {
-        throw new TRPCError({
-          code: "CONFLICT",
-          message: "An account with this email already exists",
-        });
-      }
+        if (existingCredential) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "An account with this email already exists",
+          });
+        }
 
-      let user = await db.getUserByEmail(email);
+        let user = await db.getUserByEmail(email);
 
-      if (!user) {
-        user = await db.createLocalUser({
-          name: input.name,
+        if (!user) {
+          user = await db.createLocalUser({
+            name: input.name,
+            email,
+          });
+        }
+
+        await db.createUserCredential({
+          userId: user.id,
           email,
+          passwordHash: hashLocalPassword(input.password),
         });
-      }
 
-      await db.createUserCredential({
-        userId: user.id,
-        email,
-        passwordHash: hashLocalPassword(input.password),
-      });
+        await db.updateUserLastSignedIn(user.id);
+        await setSessionCookie(ctx, user);
 
-      await db.updateUserLastSignedIn(user.id);
-      await setSessionCookie(ctx, user);
+        return { success: true, user };
+      }),
 
-      return { success: true, user };
+    login: publicProcedure
+      .input(
+        z.object({
+          email: z.string().email(),
+          password: z.string().min(1),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const email = normalizeEmail(input.email);
+        const rateLimit = await db.getLoginRateLimit(email);
+
+        if (rateLimit?.lockedUntil && rateLimit.lockedUntil.getTime() > Date.now()) {
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message: formatLockoutMessage(rateLimit.lockedUntil),
+          });
+        }
+
+        const credential = await db.getUserCredentialByEmail(email);
+
+        if (!credential || !verifyLocalPassword(input.password, credential.passwordHash)) {
+          const failedAttempt = await db.recordFailedLoginAttempt(
+            email,
+            LOGIN_MAX_FAILED_ATTEMPTS,
+            AUTH_LOCKOUT_MS
+          );
+
+          if (failedAttempt?.lockedUntil && failedAttempt.lockedUntil.getTime() > Date.now()) {
+            throw new TRPCError({
+              code: "TOO_MANY_REQUESTS",
+              message: formatLockoutMessage(failedAttempt.lockedUntil),
+            });
+          }
+
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "Invalid email or password",
+          });
+        }
+
+        const user = await db.getUserById(credential.userId);
+
+        if (!user) {
+          await db.recordFailedLoginAttempt(email, LOGIN_MAX_FAILED_ATTEMPTS, AUTH_LOCKOUT_MS);
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "Invalid email or password",
+          });
+        }
+
+        await db.clearLoginFailures(email);
+        await db.updateUserLastSignedIn(user.id);
+        await setSessionCookie(ctx, user);
+
+        return { success: true, user };
+      }),
+
+    requestPasswordReset: publicProcedure
+      .input(z.object({ email: z.string().email() }))
+      .mutation(async ({ input }) => {
+        const email = normalizeEmail(input.email);
+        const canSend = await db.shouldAllowPasswordResetRequest(
+          email,
+          PASSWORD_RESET_MAX_REQUESTS,
+          PASSWORD_RESET_WINDOW_MS
+        );
+
+        if (!canSend) {
+          return { success: true, message: PASSWORD_RESET_RESPONSE };
+        }
+
+        const credential = await db.getUserCredentialByEmail(email);
+
+        if (!credential) {
+          return { success: true, message: PASSWORD_RESET_RESPONSE };
+        }
+
+        const user = await db.getUserById(credential.userId);
+
+        if (!user) {
+          return { success: true, message: PASSWORD_RESET_RESPONSE };
+        }
+
+        const token = crypto.randomBytes(32).toString("base64url");
+        const tokenHash = hashResetToken(token);
+        const expiresAt = new Date(Date.now() + PASSWORD_RESET_TOKEN_MS);
+
+        await db.createPasswordResetToken({
+          userId: user.id,
+          email,
+          tokenHash,
+          expiresAt,
+        });
+
+        sendPasswordResetEmail({
+          email,
+          resetUrl: createPasswordResetUrl(token),
+        }).catch((error) => {
+          console.error("[Auth] Failed to send password reset email:", error);
+        });
+
+        return { success: true, message: PASSWORD_RESET_RESPONSE };
+      }),
+
+    confirmPasswordReset: publicProcedure
+      .input(
+        z.object({
+          token: z.string().min(20),
+          password: z.string().min(8),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const tokenHash = hashResetToken(input.token);
+        const resetToken = await db.getPasswordResetTokenByHash(tokenHash);
+
+        if (
+          !resetToken ||
+          resetToken.usedAt ||
+          resetToken.expiresAt.getTime() <= Date.now()
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "This reset link is invalid or expired.",
+          });
+        }
+
+        await db.updateUserCredentialPassword(
+          resetToken.userId,
+          hashLocalPassword(input.password)
+        );
+        await db.markPasswordResetTokenUsed(resetToken.id);
+        await db.clearLoginFailures(resetToken.email);
+
+        return { success: true };
+      }),
+
+    me: publicProcedure.query((opts) => opts.ctx.user),
+
+    logout: publicProcedure.mutation(({ ctx }) => {
+      const cookieOptions = getSessionCookieOptions(ctx.req);
+      ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      return { success: true } as const;
     }),
-
-  login: publicProcedure
-    .input(
-      z.object({
-        email: z.string().email(),
-        password: z.string().min(1),
-      })
-    )
-    .mutation(async ({ input, ctx }) => {
-      const email = normalizeEmail(input.email);
-      const credential = await db.getUserCredentialByEmail(email);
-
-      if (!credential || !verifyLocalPassword(input.password, credential.passwordHash)) {
-        throw new TRPCError({
-          code: "UNAUTHORIZED",
-          message: "Invalid email or password",
-        });
-      }
-
-      const user = await db.getUserById(credential.userId);
-
-      if (!user) {
-        throw new TRPCError({
-          code: "UNAUTHORIZED",
-          message: "Invalid email or password",
-        });
-      }
-
-      await db.updateUserLastSignedIn(user.id);
-      await setSessionCookie(ctx, user);
-
-      return { success: true, user };
-    }),
-
-  me: publicProcedure.query((opts) => opts.ctx.user),
-
-  logout: publicProcedure.mutation(({ ctx }) => {
-    const cookieOptions = getSessionCookieOptions(ctx.req);
-    ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
-    return { success: true } as const;
   }),
-}),
 
   // ─── Admin Auth (separate username/password) ────────────────────────────
 
@@ -441,10 +677,32 @@ export const appRouter = router({
     login: publicProcedure
       .input(z.object({ username: z.string(), password: z.string() }))
       .mutation(async ({ input }) => {
+        const lockedUntil = getAdminLoginLockout(input.username);
+
+        if (lockedUntil) {
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message: formatLockoutMessage(lockedUntil),
+          });
+        }
+
         const cred = await db.getAdminCredentialByUsername(input.username);
+
         if (!cred || !verifyPassword(input.password, cred.passwordHash)) {
+          const nextLockedUntil = recordFailedAdminLogin(input.username);
+
+          if (nextLockedUntil) {
+            throw new TRPCError({
+              code: "TOO_MANY_REQUESTS",
+              message: formatLockoutMessage(nextLockedUntil),
+            });
+          }
+
           throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid credentials" });
         }
+
+        clearFailedAdminLogins(input.username);
+
         const token = crypto.randomBytes(32).toString("hex");
         adminSessions.set(token, { username: cred.username, createdAt: Date.now() });
         return { success: true, token, username: cred.username };
@@ -810,6 +1068,73 @@ export const appRouter = router({
             message: error instanceof Error ? error.message : "Unable to start checkout.",
           });
         }
+      }),
+  }),
+
+  donations: router({
+    createCheckoutSession: publicProcedure
+      .input(
+        z.object({
+          amountCents: z.number().int().min(100).max(1_000_000),
+          isMonthly: z.boolean(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        try {
+          return createDonationCheckoutSession({
+            amountCents: input.amountCents,
+            isMonthly: input.isMonthly,
+            origin: getRequestOrigin(ctx.req),
+          });
+        } catch (error) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: error instanceof Error ? error.message : "Unable to start donation checkout.",
+          });
+        }
+      }),
+  }),
+
+  world: router({
+    listProfiles: publicProcedure.query(async () => {
+      return listEditableGlobeProfiles();
+    }),
+    updateProfile: dashboardProcedure
+      .input(
+        z.object({
+          profileId: z.string().min(1),
+          officialName: z.string().min(1).max(200),
+          displayName: z.string().min(1).max(120),
+          population: z.string().max(500),
+          region: z.string().max(500),
+          alliance: z.string().max(1000),
+          militaryStrength: z.string().max(1200),
+          rulingParty: z.string().max(1000),
+          communistParty: z.string().max(500),
+          communistPartyUrl: z.string().max(500),
+          researchTitle: z.string().max(300),
+          researchUrl: z.string().max(500),
+          description: z.string().max(3000),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const profile = GLOBE_PROFILES.find((item) => item.id === input.profileId);
+
+        if (!profile) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Country profile not found" });
+        }
+
+        await Promise.all(
+          EDITABLE_GLOBE_PROFILE_FIELDS.map((field) =>
+            db.setSetting(getWorldProfileSettingKey(input.profileId, field), input[field])
+          )
+        );
+
+        const profiles = await listEditableGlobeProfiles();
+        return {
+          success: true,
+          profile: profiles.find((item) => item.id === input.profileId) ?? null,
+        };
       }),
   }),
 

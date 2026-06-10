@@ -26,6 +26,11 @@ type ContactNotificationInput = {
   message: string;
 };
 
+type PasswordResetInput = {
+  email: string;
+  resetUrl: string;
+};
+
 function getResendClient() {
   const apiKey = ENV.resendApiKey.trim();
 
@@ -283,6 +288,138 @@ export async function sendContactNotificationEmail(input: ContactNotificationInp
       `Subject: ${input.subject}`,
       "",
       input.message,
+    ].join("\n"),
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data;
+}
+
+export async function sendPasswordResetEmail(input: PasswordResetInput) {
+  const resend = getResendClient();
+  const resetUrl = escapeHtml(input.resetUrl);
+
+  const { data, error } = await resend.emails.send({
+    from: "RTSG <store@rtsg.org>",
+    replyTo: STORE_REPLY_TO_ADDRESS,
+    to: input.email,
+    subject: "Reset your RTSG password",
+    html: `
+      <!DOCTYPE html>
+      <html lang="en">
+        <head>
+          <meta charset="UTF-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+          <title>Reset your RTSG password</title>
+          <style>
+            @media only screen and (max-width: 600px) {
+              .main-container {
+                width: 100% !important;
+              }
+
+              .content-padding {
+                padding-left: 22px !important;
+                padding-right: 22px !important;
+              }
+
+              .headline {
+                font-size: 26px !important;
+                line-height: 1.2 !important;
+              }
+
+              .button {
+                display: block !important;
+                text-align: center !important;
+              }
+            }
+          </style>
+        </head>
+        <body style="margin:0; padding:0; background-color:#050505; color:#ffffff; font-family:Arial, Helvetica, sans-serif;">
+          <div style="display:none; max-height:0; overflow:hidden; opacity:0; color:transparent; font-size:1px; line-height:1px;">
+            Use this secure link to reset your RTSG password. It expires in 30 minutes.
+          </div>
+
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#050505; margin:0; padding:0;">
+            <tr>
+              <td align="center" style="padding:38px 14px; background:radial-gradient(circle at top left, rgba(255,0,0,0.18), transparent 34%), radial-gradient(circle at bottom right, rgba(255,0,0,0.10), transparent 30%), #050505;">
+                <table role="presentation" width="640" cellpadding="0" cellspacing="0" border="0" class="main-container" style="width:640px; max-width:640px; border-radius:24px; overflow:hidden; background-color:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.14); box-shadow:0 24px 80px rgba(0,0,0,0.45);">
+                  <tr>
+                    <td class="content-padding" style="padding:30px 32px 22px 32px; border-bottom:1px solid rgba(255,255,255,0.12);">
+                      <div style="font-size:24px; font-weight:800; letter-spacing:0.08em; color:#ffffff; text-transform:uppercase;">
+                        RTSG<span style="color:#ff2b2b;">.</span>
+                      </div>
+                      <div style="margin-top:8px; font-size:13px; line-height:1.5; color:rgba(255,255,255,0.68);">
+                        Account security.
+                      </div>
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td class="content-padding" style="padding:36px 32px 34px 32px;">
+                      <div style="display:inline-block; margin-bottom:16px; padding:6px 11px; border:1px solid rgba(255,43,43,0.38); border-radius:999px; background-color:rgba(255,43,43,0.10); color:#ff4a4a; font-size:12px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase;">
+                        Password Reset
+                      </div>
+
+                      <h1 class="headline" style="margin:0 0 18px 0; font-size:32px; line-height:1.15; color:#ffffff; font-weight:800;">
+                        Reset your password
+                      </h1>
+
+                      <p style="margin:0 0 18px 0; color:rgba(255,255,255,0.84); font-size:16px; line-height:1.7;">
+                        We received a request to reset the password for your RTSG account.
+                      </p>
+
+                      <p style="margin:0 0 24px 0; color:rgba(255,255,255,0.84); font-size:16px; line-height:1.7;">
+                        This secure link expires in 30 minutes. If you did not request this, you can ignore this email.
+                      </p>
+
+                      <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:30px 0 12px 0;">
+                        <tr>
+                          <td>
+                            <a href="${resetUrl}" class="button" style="display:inline-block; padding:14px 24px; border-radius:12px; background:linear-gradient(135deg, #ff2b2b, #9f0000); color:#ffffff; font-size:15px; font-weight:700; text-decoration:none; box-shadow:0 12px 30px rgba(255,43,43,0.22);">
+                              Reset Password
+                            </a>
+                          </td>
+                        </tr>
+                      </table>
+
+                      <p style="margin:24px 0 0 0; color:rgba(255,255,255,0.62); font-size:13px; line-height:1.7;">
+                        If the button does not work, paste this link into your browser:<br />
+                        <a href="${resetUrl}" style="color:#ff4a4a; word-break:break-all;">${resetUrl}</a>
+                      </p>
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td class="content-padding" style="padding:24px 32px 30px 32px; border-top:1px solid rgba(255,255,255,0.12); color:rgba(255,255,255,0.54); font-size:12px; line-height:1.6;">
+                      <div style="margin-bottom:10px;">
+                        You are receiving this email because a password reset was requested for an RTSG account.
+                      </div>
+
+                      <div>
+                        RTSG<br />
+                        <a href="${ENV.siteUrl}" style="color:#ff4a4a; text-decoration:none;">rtsg.org</a>
+                      </div>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+        </body>
+      </html>
+    `,
+    text: [
+      "Reset your RTSG password",
+      "",
+      "We received a request to reset the password for your RTSG account.",
+      "This secure link expires in 30 minutes.",
+      "",
+      input.resetUrl,
+      "",
+      "If you did not request this, you can ignore this email.",
     ].join("\n"),
   });
 
