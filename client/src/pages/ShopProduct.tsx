@@ -183,7 +183,7 @@ export default function ShopProduct() {
 
             <div>
               <h1 className="mt-6 text-4xl font-bold leading-none text-foreground sm:text-6xl">{product.name}</h1>
-              <p className="mt-4 text-lg font-normal text-white">{product.price}</p>
+              <p className="mt-4 text-lg font-normal text-white">{selectedVariant?.price ?? product.price}</p>
             </div>
 
             <p className="text-sm leading-relaxed text-white/64 sm:text-base">{product.description}</p>

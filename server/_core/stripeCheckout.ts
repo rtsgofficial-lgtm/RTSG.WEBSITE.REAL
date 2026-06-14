@@ -2,7 +2,7 @@ import type { Request, Response } from "express";
 import { createHash } from "crypto";
 import Stripe from "stripe";
 import { ENV } from "./env";
-import { createPrintfulDraftOrderFromStripeSession } from "./printful";
+import { createPrintfulDraftOrderFromStripeSession, getPrintfulProductRetailPrices } from "./printful";
 import { sendOrderConfirmationEmail } from "./resendEmail";
 import { SHOP_PRODUCT_COPY, SHOP_PRODUCTS } from "./shopCatalog";
 import * as db from "../db";
@@ -11,6 +11,9 @@ const currencyFormatter = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "USD",
 });
+
+type ShopProduct = (typeof SHOP_PRODUCTS)[number];
+type ShopVariant = ShopProduct["variants"][number];
 
 function getStripeClient() {
   const apiKey = ENV.stripeSecretKey.trim();
@@ -39,8 +42,28 @@ async function getShopProductCopy(productId: string) {
   };
 }
 
-async function serializeShopProduct(product: (typeof SHOP_PRODUCTS)[number]) {
+function formatShopPrice(priceCents: number) {
+  return currencyFormatter.format(priceCents / 100);
+}
+
+async function getShopVariantPriceMap(product: ShopProduct) {
+  return getPrintfulProductRetailPrices(product.printfulSyncProductId);
+}
+
+function getShopVariantPriceCents(
+  product: ShopProduct,
+  variant: ShopVariant,
+  printfulPrices: Map<number, number>
+) {
+  return printfulPrices.get(variant.printfulSyncVariantId) ?? product.priceCents;
+}
+
+async function serializeShopProduct(product: ShopProduct) {
   const copy = await getShopProductCopy(product.id);
+  const printfulPrices = await getShopVariantPriceMap(product);
+  const variantPrices = product.variants.map((variant) => getShopVariantPriceCents(product, variant, printfulPrices));
+  const minPriceCents = Math.min(...variantPrices);
+  const maxPriceCents = Math.max(...variantPrices);
   const images = product.variants
     .flatMap((variant) =>
       variant.images.map((image) => ({
@@ -58,8 +81,11 @@ async function serializeShopProduct(product: (typeof SHOP_PRODUCTS)[number]) {
     name: product.name,
     label: product.label,
     optionLabel: product.optionLabel,
-    price: currencyFormatter.format(product.priceCents / 100),
-    priceCents: product.priceCents,
+    price:
+      minPriceCents === maxPriceCents
+        ? formatShopPrice(minPriceCents)
+        : `From ${formatShopPrice(minPriceCents)}`,
+    priceCents: minPriceCents,
     currency: product.currency,
     brand: product.brand,
     model: product.model,
@@ -71,15 +97,21 @@ async function serializeShopProduct(product: (typeof SHOP_PRODUCTS)[number]) {
     description: copy.description,
     details: copy.details,
     images,
-    variants: product.variants.map((variant) => ({
-      id: variant.id,
-      name: variant.name,
-      mockupImageUrl: variant.images[0]?.url ?? "",
-      productImageUrl: variant.images[1]?.url ?? variant.images[0]?.url ?? "",
-      images: variant.images,
-      printfulSyncVariantId: variant.printfulSyncVariantId,
-      printfulExternalVariantId: variant.printfulExternalVariantId,
-    })),
+    variants: product.variants.map((variant) => {
+      const priceCents = getShopVariantPriceCents(product, variant, printfulPrices);
+
+      return {
+        id: variant.id,
+        name: variant.name,
+        price: formatShopPrice(priceCents),
+        priceCents,
+        mockupImageUrl: variant.images[0]?.url ?? "",
+        productImageUrl: variant.images[1]?.url ?? variant.images[0]?.url ?? "",
+        images: variant.images,
+        printfulSyncVariantId: variant.printfulSyncVariantId,
+        printfulExternalVariantId: variant.printfulExternalVariantId,
+      };
+    }),
   };
 }
 
@@ -133,6 +165,8 @@ export async function createShopCheckoutSession(input: {
     throw new Error("Choose a product option before checkout.");
   }
 
+  const printfulPrices = await getShopVariantPriceMap(product);
+  const priceCents = getShopVariantPriceCents(product, variant, printfulPrices);
   const stripe = getStripeClient();
   const session = await stripe.checkout.sessions.create({
     mode: "payment",
@@ -148,7 +182,7 @@ export async function createShopCheckoutSession(input: {
         quantity: 1,
         price_data: {
           currency: "usd",
-          unit_amount: product.priceCents,
+          unit_amount: priceCents,
           product_data: {
             name: `${product.name} / ${variant.name}`,
             images: [variant.images[0]?.url].filter(Boolean),

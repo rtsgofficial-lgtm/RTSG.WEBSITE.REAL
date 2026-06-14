@@ -108,92 +108,97 @@ export default function Shop() {
 
         <section className="shop-products-panel">
           {products.map((product, index) => (
-            <article
-              key={product.id}
-              className="shop-product-row group"
-              style={{ animationDelay: `${index * 70}ms` }}
-            >
-              <Link href={`/shop/${product.id}`} className="shop-product-media" aria-label={`View ${product.name}`}>
-                <div className="shop-product-orbit" />
-                <img
-                  src={
-                    product.variants.find(
-                      (variant) => variant.id === (selectedVariants[product.id] ?? product.variants[0]?.id)
-                    )?.mockupImageUrl ?? product.variants[0]?.mockupImageUrl
-                  }
-                  alt={product.name}
-                  className="shop-product-mark"
-                />
-              </Link>
+            (() => {
+              const selectedVariant =
+                product.variants.find(
+                  (variant) => variant.id === (selectedVariants[product.id] ?? product.variants[0]?.id)
+                ) ?? product.variants[0];
 
-              <div className="shop-product-content">
-                <div>
-                  <p className="mb-3 text-xs uppercase tracking-[0.22em] text-white/42">
-                    {product.label}
-                  </p>
-                  <Link href={`/shop/${product.id}`}>
-                    <h2 className="text-2xl font-bold leading-tight text-white transition-colors hover:text-primary sm:text-3xl">
-                      {product.name}
-                    </h2>
+              return (
+                <article
+                  key={product.id}
+                  className="shop-product-row group"
+                  style={{ animationDelay: `${index * 70}ms` }}
+                >
+                  <Link href={`/shop/${product.id}`} className="shop-product-media" aria-label={`View ${product.name}`}>
+                    <div className="shop-product-orbit" />
+                    <img
+                      src={selectedVariant?.mockupImageUrl ?? product.variants[0]?.mockupImageUrl}
+                      alt={product.name}
+                      className="shop-product-mark"
+                    />
                   </Link>
-                  <p className="mt-3 max-w-md text-sm leading-relaxed text-white/58">
-                    {product.description}
-                  </p>
-                  <div className="shop-product-variants" aria-label={`${product.name} ${product.optionLabel.toLowerCase()} options`}>
-                    {product.variants.map((variant) => {
-                      const selectedVariant = selectedVariants[product.id] ?? product.variants[0]?.id;
-                      const isSelected = selectedVariant === variant.id;
 
-                      return (
+                  <div className="shop-product-content">
+                    <div>
+                      <p className="mb-3 text-xs uppercase tracking-[0.22em] text-white/42">
+                        {product.label}
+                      </p>
+                      <Link href={`/shop/${product.id}`}>
+                        <h2 className="text-2xl font-bold leading-tight text-white transition-colors hover:text-primary sm:text-3xl">
+                          {product.name}
+                        </h2>
+                      </Link>
+                      <p className="mt-3 max-w-md text-sm leading-relaxed text-white/58">
+                        {product.description}
+                      </p>
+                      <div className="shop-product-variants" aria-label={`${product.name} ${product.optionLabel.toLowerCase()} options`}>
+                        {product.variants.map((variant) => {
+                          const selectedVariantId = selectedVariants[product.id] ?? product.variants[0]?.id;
+                          const isSelected = selectedVariantId === variant.id;
+
+                          return (
+                            <button
+                              key={variant.id}
+                              type="button"
+                              className="shop-product-variant"
+                              data-selected={isSelected ? "true" : undefined}
+                              onClick={() =>
+                                setSelectedVariants((current) => ({
+                                  ...current,
+                                  [product.id]: variant.id,
+                                }))
+                              }
+                            >
+                              {variant.name}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="shop-product-actions flex items-center justify-between gap-5">
+                      <div>
+                        <p className="text-base font-normal text-white sm:text-lg">
+                          {selectedVariant?.price ?? product.price}
+                        </p>
+                        <Link href={`/shop/${product.id}`} className="text-xs font-medium text-white/46 hover:text-primary">
+                          View details
+                        </Link>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Link href={`/shop/${product.id}`} className="shop-product-secondary-action">
+                          Details
+                        </Link>
                         <button
-                          key={variant.id}
                           type="button"
-                          className="shop-product-variant"
-                          data-selected={isSelected ? "true" : undefined}
-                          onClick={() =>
-                            setSelectedVariants((current) => ({
-                              ...current,
-                              [product.id]: variant.id,
-                            }))
-                          }
+                          className="shop-product-arrow"
+                          onClick={() => handleCheckout(product.id)}
+                          disabled={createCheckout.isPending}
+                          aria-label={`Checkout ${product.name}`}
                         >
-                          {variant.name}
+                          {pendingProductId === product.id ? (
+                            <Loader2 className="h-5 w-5 animate-spin" />
+                          ) : (
+                            <ArrowUpRight className="h-5 w-5" />
+                          )}
                         </button>
-                      );
-                    })}
+                      </div>
+                    </div>
                   </div>
-                </div>
-
-                <div className="shop-product-actions flex items-center justify-between gap-5">
-                  <div>
-                    <p className="text-base font-normal text-white sm:text-lg">
-                      {product.price}
-                    </p>
-                    <Link href={`/shop/${product.id}`} className="text-xs font-medium text-white/46 hover:text-primary">
-                      View details
-                    </Link>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Link href={`/shop/${product.id}`} className="shop-product-secondary-action">
-                      Details
-                    </Link>
-                    <button
-                      type="button"
-                      className="shop-product-arrow"
-                      onClick={() => handleCheckout(product.id)}
-                      disabled={createCheckout.isPending}
-                      aria-label={`Checkout ${product.name}`}
-                    >
-                      {pendingProductId === product.id ? (
-                        <Loader2 className="h-5 w-5 animate-spin" />
-                      ) : (
-                        <ArrowUpRight className="h-5 w-5" />
-                      )}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </article>
+                </article>
+              );
+            })()
           ))}
         </section>
 

@@ -28,6 +28,19 @@ type PrintfulOrderResponse = {
   };
 };
 
+type PrintfulStoreProductResponse = {
+  code: number;
+  result?: {
+    sync_variants?: Array<{
+      id: number;
+      retail_price?: string | number | null;
+    }>;
+  };
+  error?: {
+    message?: string;
+  };
+};
+
 type StripeShippingDetails = {
   name?: string | null;
   address?: Stripe.Address | null;
@@ -36,6 +49,9 @@ type StripeShippingDetails = {
 type StripeSessionWithShippingDetails = Stripe.Checkout.Session & {
   shipping_details?: StripeShippingDetails | null;
 };
+
+const PRINTFUL_PRICE_CACHE_MS = 5 * 60 * 1000;
+const printfulPriceCache = new Map<number, { expiresAt: number; prices: Map<number, number> }>();
 
 function getPrintfulHeaders() {
   const apiKey = ENV.printfulApiKey.trim();
@@ -54,6 +70,20 @@ function getPrintfulHeaders() {
     "Content-Type": "application/json",
     "X-PF-Store-Id": storeId,
   };
+}
+
+function parsePrintfulPriceCents(value: string | number | null | undefined) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const amount = typeof value === "number" ? value : Number.parseFloat(value);
+
+  if (!Number.isFinite(amount)) {
+    return null;
+  }
+
+  return Math.round(amount * 100);
 }
 
 function toPrintfulRecipient(session: Stripe.Checkout.Session): PrintfulRecipient {
@@ -92,6 +122,56 @@ function toPrintfulRecipient(session: Stripe.Checkout.Session): PrintfulRecipien
 
 function getPrintfulExternalId(sessionId: string) {
   return `rtsg${createHash("sha256").update(sessionId).digest("hex").slice(0, 28)}`;
+}
+
+export async function getPrintfulProductRetailPrices(syncProductId: number) {
+  const cached = printfulPriceCache.get(syncProductId);
+  const now = Date.now();
+
+  if (cached && cached.expiresAt > now) {
+    return cached.prices;
+  }
+
+  try {
+    const response = await fetch(`https://api.printful.com/store/products/${syncProductId}`, {
+      headers: getPrintfulHeaders(),
+    });
+    const body = (await response.json()) as PrintfulStoreProductResponse;
+
+    if (!response.ok) {
+      throw new Error(body.error?.message ?? `Printful returned ${response.status}.`);
+    }
+
+    const prices = new Map<number, number>();
+
+    for (const variant of body.result?.sync_variants ?? []) {
+      const priceCents = parsePrintfulPriceCents(variant.retail_price);
+
+      if (priceCents !== null) {
+        prices.set(variant.id, priceCents);
+      }
+    }
+
+    printfulPriceCache.set(syncProductId, {
+      expiresAt: now + PRINTFUL_PRICE_CACHE_MS,
+      prices,
+    });
+
+    return prices;
+  } catch (error) {
+    console.warn("[Printful] Unable to fetch synced retail prices; using local fallback prices", {
+      syncProductId,
+      message: error instanceof Error ? error.message : "Unknown error",
+    });
+
+    const fallback = new Map<number, number>();
+    printfulPriceCache.set(syncProductId, {
+      expiresAt: now + 60 * 1000,
+      prices: fallback,
+    });
+
+    return fallback;
+  }
 }
 
 async function getExistingPrintfulOrder(externalId: string) {
@@ -152,7 +232,7 @@ export async function createPrintfulDraftOrderFromStripeSession(session: Stripe.
           external_variant_id: variant.printfulExternalVariantId,
           name: `${product.name} / ${variant.name}`,
           quantity: 1,
-          retail_price: (product.priceCents / 100).toFixed(2),
+          retail_price: ((session.amount_subtotal ?? session.amount_total ?? product.priceCents) / 100).toFixed(2),
         },
       ],
     }),
