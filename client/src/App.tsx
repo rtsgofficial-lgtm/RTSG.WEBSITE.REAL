@@ -25,6 +25,7 @@ import DonateStatus from "./pages/DonateStatus";
 import AdminLogin from "./pages/AdminLogin";
 import AdminDashboard from "./pages/AdminDashboard";
 import Profile from "./pages/Profile";
+import UserProfile from "./pages/UserProfile";
 import Layout from "./components/Layout";
 import UnderConstruction from "./pages/UnderConstruction";
 import Login from "./pages/Login";
@@ -62,6 +63,7 @@ function AdminRouter() {
       <Route path="/donate/cancel" component={DonateStatus} />
       <Route path="/donate" component={Donate} />
       <Route path="/globe" component={Globe} />
+      <Route path="/users/:id" component={UserProfile} />
       <Route path="/profile" component={Profile} />
       <Route path="/admin" component={AdminLogin} />
       <Route path="/admin/dashboard" component={AdminDashboard} />
@@ -92,6 +94,7 @@ function PublicRouter() {
       <Route path="/donate/cancel" component={DonateStatus} />
       <Route path="/donate" component={Donate} />
       <Route path="/globe" component={Globe} />
+      <Route path="/users/:id" component={UserProfile} />
       <Route path="/profile" component={Profile} />
       <Route path="/admin" component={AdminLogin} />
       <Route path="/admin/dashboard" component={AdminDashboard} />
@@ -113,6 +116,7 @@ function ConstructionRouter() {
       <Route path="/donate/cancel" component={DonateStatus} />
       <Route path="/donate" component={Donate} />
       <Route path="/globe" component={Globe} />
+      <Route path="/users/:id" component={UserProfile} />
       <Route path="/admin" component={AdminLogin} />
       <Route path="/admin/dashboard" component={AdminDashboard} />
       <Route component={UnderConstruction} />

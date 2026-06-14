@@ -3,8 +3,8 @@ import { ENV } from "./env";
 import type { SHOP_PRODUCTS } from "./shopCatalog";
 
 const RESEND_PLACEHOLDER = "re_xxxxxxxxx";
-const STORE_FROM_ADDRESS = "RTSG Store <store@rtsg.org>";
-const STORE_REPLY_TO_ADDRESS = "rtsgmain@rtsg.org";
+const STORE_FROM_ADDRESS = ENV.storeEmailFrom;
+const STORE_REPLY_TO_ADDRESS = ENV.storeReplyTo;
 
 type ShopProduct = (typeof SHOP_PRODUCTS)[number];
 type ShopVariant = ShopProduct["variants"][number];
@@ -50,6 +50,12 @@ function escapeHtml(value: string) {
     .replace(/'/g, "&#039;");
 }
 
+function getReplyToEmailAddress() {
+  const displayNameMatch = STORE_REPLY_TO_ADDRESS.match(/<([^>]+)>/);
+
+  return displayNameMatch?.[1] ?? STORE_REPLY_TO_ADDRESS;
+}
+
 export async function sendResendHelloWorldEmail() {
   const resend = getResendClient();
   const { data, error } = await resend.emails.send({
@@ -76,6 +82,7 @@ export async function sendOrderConfirmationEmail(input: OrderConfirmationInput) 
   const orderId = escapeHtml(input.orderId);
   const printfulOrderId = input.printfulOrderId ? escapeHtml(String(input.printfulOrderId)) : null;
   const amountTotal = input.amountTotal ? escapeHtml(input.amountTotal) : null;
+  const replyToEmail = escapeHtml(getReplyToEmailAddress());
 
   const { data, error } = await resend.emails.send({
     from: STORE_FROM_ADDRESS,
@@ -203,7 +210,7 @@ export async function sendOrderConfirmationEmail(input: OrderConfirmationInput) 
                       <div style="margin-bottom:14px;">
                         <a href="https://rtsg.org" style="color:#ff4a4a; text-decoration:none; font-weight:700; margin-right:14px; text-transform:uppercase; letter-spacing:0.05em;">Website</a>
                         <a href="https://youtube.com/@RTSG_Main" style="color:#ff4a4a; text-decoration:none; font-weight:700; margin-right:14px; text-transform:uppercase; letter-spacing:0.05em;">YouTube</a>
-                        <a href="mailto:${STORE_REPLY_TO_ADDRESS}" style="color:#ff4a4a; text-decoration:none; font-weight:700; text-transform:uppercase; letter-spacing:0.05em;">Contact</a>
+                        <a href="mailto:${replyToEmail}" style="color:#ff4a4a; text-decoration:none; font-weight:700; text-transform:uppercase; letter-spacing:0.05em;">Contact</a>
                       </div>
 
                       <div style="margin-bottom:10px;">
@@ -236,7 +243,7 @@ export async function sendOrderConfirmationEmail(input: OrderConfirmationInput) 
       `Order ID: ${input.orderId}`,
       input.printfulOrderId ? `Fulfillment ID: ${input.printfulOrderId}` : null,
       "",
-      "If you have questions, send an email to rtsgmain@rtsg.org and it will go to RTSG directly.",
+      `If you have questions, send an email to ${getReplyToEmailAddress()} and it will go to RTSG directly.`,
     ]
       .filter(Boolean)
       .join("\n"),
@@ -251,7 +258,7 @@ export async function sendOrderConfirmationEmail(input: OrderConfirmationInput) 
 
 export async function sendContactNotificationEmail(input: ContactNotificationInput) {
   const resend = getResendClient();
-  const adminEmail = process.env.STORE_ADMIN_EMAIL?.trim() || "rtsgmain@rtsg.org";
+  const adminEmail = ENV.storeAdminEmail;
   const senderName = escapeHtml(input.name);
   const senderEmail = escapeHtml(input.email);
   const subject = escapeHtml(input.subject);

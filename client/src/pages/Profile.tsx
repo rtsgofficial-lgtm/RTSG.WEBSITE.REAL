@@ -175,6 +175,15 @@ export default function Profile() {
                   <span>Last active {new Date(user.lastSignedIn).toLocaleDateString()}</span>
                 </div>
               </div>
+
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => navigate(`/users/${user.id}`)}
+                className="mt-4 rounded-lg border-white/10 text-xs hover:bg-white/5"
+              >
+                View public profile
+              </Button>
             </div>
           </div>
         </div>
@@ -188,6 +197,7 @@ export default function Profile() {
 
           <div className="space-y-4">
             <DisplayNameEditor user={user} />
+            <ProfileDescriptionEditor user={user} />
             <div className="flex items-center justify-between py-3 border-b border-white/5">
               <span className="text-sm text-muted-foreground">Email</span>
               <span className="text-sm font-medium text-foreground">{user.email || "—"}</span>
@@ -475,6 +485,83 @@ function DisplayNameEditor({ user }: { user: any }) {
           Edit
         </Button>
       </div>
+    </div>
+  );
+}
+
+function ProfileDescriptionEditor({ user }: { user: any }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [profileBio, setProfileBio] = useState(user?.profileBio || "");
+  const utils = trpc.useUtils();
+  const updateProfileBio = trpc.users.updateProfileBio.useMutation({
+    onSuccess: () => {
+      toast.success("Profile description updated!");
+      utils.auth.me.invalidate();
+      setIsEditing(false);
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const handleSave = () => {
+    updateProfileBio.mutate({ profileBio });
+  };
+
+  if (isEditing) {
+    return (
+      <div className="py-3 border-b border-white/5">
+        <div className="mb-2 flex items-center justify-between">
+          <span className="text-sm text-muted-foreground">Profile Description</span>
+          <span className="text-xs text-muted-foreground">{profileBio.length}/800</span>
+        </div>
+        <textarea
+          value={profileBio}
+          onChange={(event) => setProfileBio(event.target.value)}
+          placeholder="Tell people a little about yourself..."
+          rows={5}
+          maxLength={800}
+          className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-foreground transition-all placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+        />
+        <div className="mt-3 flex justify-end gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setIsEditing(false);
+              setProfileBio(user?.profileBio || "");
+            }}
+            className="rounded-lg border-white/10 hover:bg-white/5 text-xs"
+          >
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            onClick={handleSave}
+            disabled={updateProfileBio.isPending}
+            className="rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-xs"
+          >
+            {updateProfileBio.isPending ? "Saving..." : "Save"}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="py-3 border-b border-white/5">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <span className="text-sm text-muted-foreground">Profile Description</span>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => setIsEditing(true)}
+          className="rounded-lg h-7 px-2 border-white/10 hover:bg-white/5 text-xs"
+        >
+          Edit
+        </Button>
+      </div>
+      <p className="whitespace-pre-wrap text-sm leading-6 text-foreground">
+        {user?.profileBio || "No profile description yet."}
+      </p>
     </div>
   );
 }

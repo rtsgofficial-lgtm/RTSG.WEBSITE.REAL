@@ -2,6 +2,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { getLoginUrl } from "@/const";
 import { Link, useLocation } from "wouter";
 import {
+  Bell,
   FileText,
   Globe2,
   Heart,
@@ -13,8 +14,10 @@ import {
   Shield,
   ShoppingBag,
   User,
+  MessageSquare,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { trpc } from "@/lib/trpc";
 import {
   Sheet,
   SheetClose,
@@ -55,9 +58,68 @@ const mobileNavItems = [
   { label: "Contact", href: "/contact", icon: User },
 ];
 
+function formatNotificationTime(value: string | Date) {
+  const date = new Date(value);
+  const diffMs = Date.now() - date.getTime();
+  const diffMinutes = Math.floor(diffMs / (60 * 1000));
+
+  if (diffMinutes < 1) return "Just now";
+  if (diffMinutes < 60) return `${diffMinutes}m ago`;
+
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+
+  return date.toLocaleDateString();
+}
+
+function getNotificationMessage(notification: { type: string; actorName: string | null }) {
+  const actorName = notification.actorName || "Someone";
+
+  if (notification.type === "comment_mention") {
+    return (
+      <>
+        <span className="font-semibold">{actorName}</span> mentioned you in a comment.
+      </>
+    );
+  }
+
+  return (
+    <>
+      <span className="font-semibold">{actorName}</span> commented on your article.
+    </>
+  );
+}
+
 export default function Layout({ children }: { children: React.ReactNode }) {
   const { user, isAuthenticated, logout } = useAuth();
   const [location, navigate] = useLocation();
+  const utils = trpc.useUtils();
+
+  const notificationsQuery = trpc.notifications.list.useQuery(undefined, {
+    enabled: isAuthenticated,
+    refetchInterval: 30_000,
+    refetchOnWindowFocus: true,
+  });
+
+  const markNotificationRead = trpc.notifications.markRead.useMutation({
+    onSuccess: () => {
+      utils.notifications.list.invalidate();
+    },
+  });
+
+  const markAllNotificationsRead = trpc.notifications.markAllRead.useMutation({
+    onSuccess: () => {
+      utils.notifications.list.invalidate();
+    },
+  });
+
+  const notifications = notificationsQuery.data?.items ?? [];
+  const unreadNotificationCount = notificationsQuery.data?.unreadCount ?? 0;
+
+  const openNotification = (notification: { id: number; articleId: number }) => {
+    markNotificationRead.mutate({ id: notification.id });
+    navigate(`/articles/${notification.articleId}`);
+  };
 
   // Hide nav only on admin pages
   const isAdminPage = location.startsWith("/admin");
@@ -107,55 +169,121 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             {/* Desktop Auth Section */}
             <div className="hidden md:flex items-center gap-2">
               {isAuthenticated && user ? (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      className="flex items-center gap-2 rounded-xl hover:bg-white/5 px-3"
+                <>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="relative rounded-xl hover:bg-white/5"
+                        aria-label="Open notifications"
+                      >
+                        <Bell className="w-4 h-4 text-muted-foreground" />
+                        {unreadNotificationCount > 0 && (
+                          <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-bold leading-none text-white shadow-[0_0_14px_rgba(255,20,55,0.65)]">
+                            {unreadNotificationCount > 9 ? "9+" : unreadNotificationCount}
+                          </span>
+                        )}
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align="end"
+                      className="glass w-80 border-white/10 bg-black/90 p-0 backdrop-blur-xl"
                     >
-                      <div className="w-7 h-7 rounded-full bg-primary/20 border border-primary/30 flex items-center justify-center">
-                        <User className="w-3.5 h-3.5 text-primary" />
+                      <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+                        <p className="text-sm font-semibold text-foreground">Notifications</p>
+                        {unreadNotificationCount > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => markAllNotificationsRead.mutate()}
+                            className="text-xs text-primary hover:text-primary/80"
+                          >
+                            Mark all read
+                          </button>
+                        )}
                       </div>
-                      <span className="text-sm font-medium text-foreground hidden sm:block">
-                        {user.name || "User"}
-                      </span>
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent
-                    align="end"
-                    className="glass border-white/10 bg-black/90 backdrop-blur-xl w-48"
-                  >
-                    <div className="px-3 py-2">
-                      <p className="text-sm font-medium text-foreground">
-                        {user.name}
-                      </p>
-                      <p className="text-xs text-muted-foreground break-all">
-                        {user.email}
-                      </p>
-                      {user.role !== "user" && (
-                        <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-primary/20 text-primary border border-primary/30">
-                          <Shield className="w-2.5 h-2.5" />
-                          {user.role}
+                      <div className="max-h-96 overflow-y-auto py-1">
+                        {notifications.length > 0 ? (
+                          notifications.map((notification) => (
+                            <DropdownMenuItem
+                              key={notification.id}
+                              onClick={() => openNotification(notification)}
+                              className="cursor-pointer gap-3 px-4 py-3 text-left focus:bg-white/5"
+                            >
+                              <div className={`mt-0.5 h-2 w-2 rounded-full shrink-0 ${notification.isRead ? "bg-white/20" : "bg-primary"}`} />
+                              <div className="min-w-0">
+                                <p className="text-sm leading-snug text-foreground">
+                                  {getNotificationMessage(notification)}
+                                </p>
+                                <p className="mt-1 truncate text-xs text-muted-foreground">
+                                  {notification.articleTitle || "Open article"}
+                                </p>
+                                <p className="mt-1 text-[11px] text-muted-foreground/80">
+                                  {formatNotificationTime(notification.createdAt)}
+                                </p>
+                              </div>
+                            </DropdownMenuItem>
+                          ))
+                        ) : (
+                          <div className="px-4 py-8 text-center">
+                            <MessageSquare className="mx-auto mb-2 h-5 w-5 text-muted-foreground" />
+                            <p className="text-sm text-muted-foreground">No notifications yet.</p>
+                          </div>
+                        )}
+                      </div>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        className="flex items-center gap-2 rounded-xl hover:bg-white/5 px-3"
+                      >
+                        <div className="w-7 h-7 rounded-full bg-primary/20 border border-primary/30 flex items-center justify-center">
+                          <User className="w-3.5 h-3.5 text-primary" />
+                        </div>
+                        <span className="text-sm font-medium text-foreground hidden sm:block">
+                          {user.name || "User"}
                         </span>
-                      )}
-                    </div>
-                    <DropdownMenuSeparator className="bg-white/10" />
-                    <DropdownMenuItem
-                      onClick={() => navigate("/profile")}
-                      className="text-muted-foreground hover:text-foreground cursor-pointer"
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align="end"
+                      className="glass border-white/10 bg-black/90 backdrop-blur-xl w-48"
                     >
-                      <User className="w-4 h-4 mr-2" />
-                      Profile
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={logout}
-                      className="text-muted-foreground hover:text-foreground cursor-pointer"
-                    >
-                      <LogOut className="w-4 h-4 mr-2" />
-                      Sign Out
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                      <div className="px-3 py-2">
+                        <p className="text-sm font-medium text-foreground">
+                          {user.name}
+                        </p>
+                        <p className="text-xs text-muted-foreground break-all">
+                          {user.email}
+                        </p>
+                        {user.role !== "user" && (
+                          <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-primary/20 text-primary border border-primary/30">
+                            <Shield className="w-2.5 h-2.5" />
+                            {user.role}
+                          </span>
+                        )}
+                      </div>
+                      <DropdownMenuSeparator className="bg-white/10" />
+                      <DropdownMenuItem
+                        onClick={() => navigate("/profile")}
+                        className="text-muted-foreground hover:text-foreground cursor-pointer"
+                      >
+                        <User className="w-4 h-4 mr-2" />
+                        Profile
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={logout}
+                        className="text-muted-foreground hover:text-foreground cursor-pointer"
+                      >
+                        <LogOut className="w-4 h-4 mr-2" />
+                        Sign Out
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </>
               ) : (
                 <a href={getLoginUrl()}>
                   <Button
@@ -257,6 +385,56 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                             Profile
                           </Button>
                         </SheetClose>
+
+                        <div className="rounded-xl border border-white/10 bg-black/20 p-2">
+                          <div className="mb-2 flex items-center justify-between px-1">
+                            <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                              <Bell className="h-4 w-4 text-primary" />
+                              Notifications
+                              {unreadNotificationCount > 0 && (
+                                <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
+                                  {unreadNotificationCount > 9 ? "9+" : unreadNotificationCount}
+                                </span>
+                              )}
+                            </div>
+                            {unreadNotificationCount > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => markAllNotificationsRead.mutate()}
+                                className="text-xs text-primary"
+                              >
+                                Mark read
+                              </button>
+                            )}
+                          </div>
+
+                          {notifications.length > 0 ? (
+                            <div className="space-y-1">
+                              {notifications.slice(0, 3).map((notification) => (
+                                <SheetClose key={notification.id} asChild>
+                                  <button
+                                    type="button"
+                                    onClick={() => openNotification(notification)}
+                                    className="flex w-full items-start gap-2 rounded-lg px-2 py-2 text-left hover:bg-white/5"
+                                  >
+                                    <span className={`mt-1.5 h-2 w-2 rounded-full shrink-0 ${notification.isRead ? "bg-white/20" : "bg-primary"}`} />
+                                    <span className="min-w-0">
+                                      <span className="block text-xs leading-snug text-foreground">
+                                        {getNotificationMessage(notification)}
+                                      </span>
+                                      <span className="mt-1 block truncate text-[11px] text-muted-foreground">
+                                        {notification.articleTitle || "Open article"}
+                                      </span>
+                                    </span>
+                                  </button>
+                                </SheetClose>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="px-1 py-3 text-xs text-muted-foreground">No notifications yet.</p>
+                          )}
+                        </div>
+
                         <SheetClose asChild>
                           <Button
                             variant="ghost"

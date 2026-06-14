@@ -3,7 +3,7 @@ import { useRoute, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
   ArrowLeft,
   Eye,
@@ -28,6 +28,8 @@ export default function ArticleDetail() {
   const { user, isAuthenticated } = useAuth();
 
   const [commentText, setCommentText] = useState("");
+  const [commentCursor, setCommentCursor] = useState(0);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const articleId = Number(params?.id);
   const { data: article, isLoading } = trpc.articles.getById.useQuery(
@@ -42,6 +44,15 @@ export default function ArticleDetail() {
   const utils = trpc.useUtils();
   const incrementView = trpc.articles.incrementView.useMutation();
   const viewIncrementedRef = useRef(new Set<number>());
+  const activeMentionQuery = useMemo(() => {
+    const beforeCursor = commentText.slice(0, commentCursor);
+    const match = beforeCursor.match(/(^|[\s([{])@([a-z0-9_-]{0,31})$/i);
+    return match ? match[2].toLowerCase() : null;
+  }, [commentCursor, commentText]);
+  const mentionCandidatesQuery = trpc.users.mentionSearch.useQuery(
+    { query: activeMentionQuery ?? "" },
+    { enabled: isAuthenticated && activeMentionQuery !== null }
+  );
 
   // Increment view count when article is first loaded (only once per article)
   useEffect(() => {
@@ -122,6 +133,43 @@ export default function ArticleDetail() {
     addComment.mutate({ content: commentText.trim(), articleId });
   };
 
+  const insertMention = (handle: string) => {
+    const textarea = textareaRef.current;
+    const cursor = textarea?.selectionStart ?? commentText.length;
+    const beforeCursor = commentText.slice(0, cursor);
+    const afterCursor = commentText.slice(cursor);
+    const match = beforeCursor.match(/(^|[\s([{])@([a-z0-9_-]{0,31})$/i);
+
+    if (!match || match.index === undefined) return;
+
+    const prefix = beforeCursor.slice(0, match.index) + match[1];
+    const nextText = `${prefix}@${handle} ${afterCursor}`;
+    const nextCursor = `${prefix}@${handle} `.length;
+
+    setCommentText(nextText);
+    setCommentCursor(nextCursor);
+    window.setTimeout(() => {
+      textarea?.focus();
+      textarea?.setSelectionRange(nextCursor, nextCursor);
+    }, 0);
+  };
+
+  const renderCommentContent = (content: string) => {
+    const parts = content.split(/(@[a-z0-9][a-z0-9_-]{1,31}\b)/gi);
+
+    return parts.map((part, index) => {
+      if (/^@[a-z0-9][a-z0-9_-]{1,31}$/i.test(part)) {
+        return (
+          <span key={`${part}-${index}`} className="rounded-md bg-primary/10 px-1 py-0.5 font-medium text-primary">
+            {part}
+          </span>
+        );
+      }
+
+      return <span key={`${part}-${index}`}>{part}</span>;
+    });
+  };
+
   const getRoleBadge = (role: string | null) => {
     if (role === "admin")
       return (
@@ -186,14 +234,18 @@ export default function ArticleDetail() {
 
             {/* Meta */}
             <div className="flex items-center gap-4 text-sm text-muted-foreground mb-6 pb-6 border-b border-white/5">
-              <span className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => navigate(`/users/${article.authorId}`)}
+                className="flex items-center gap-1.5 transition-colors hover:text-primary"
+              >
                 {article.authorAvatar ? (
                   <img src={article.authorAvatar} alt="" className="w-5 h-5 rounded-full object-cover" />
                 ) : (
                   <User className="w-4 h-4" />
                 )}
                 {article.authorName || "Anonymous"}
-              </span>
+              </button>
               {getRoleBadge(article.authorRole)}
               <span className="flex items-center gap-1">
                 <Clock className="w-3.5 h-3.5" />
@@ -310,13 +362,53 @@ export default function ArticleDetail() {
               </div>
             ) : (
               <form onSubmit={handleCommentSubmit} className="glass rounded-xl p-4 mb-6">
-                <textarea
-                  value={commentText}
-                  onChange={(e) => setCommentText(e.target.value)}
-                  placeholder="Write a comment..."
-                  rows={3}
-                  className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30 transition-all resize-none text-sm"
-                />
+                <div className="relative">
+                  <textarea
+                    ref={textareaRef}
+                    value={commentText}
+                    onChange={(e) => {
+                      setCommentText(e.target.value);
+                      setCommentCursor(e.target.selectionStart);
+                    }}
+                    onClick={(e) => setCommentCursor(e.currentTarget.selectionStart)}
+                    onKeyUp={(e) => setCommentCursor(e.currentTarget.selectionStart)}
+                    onSelect={(e) => setCommentCursor(e.currentTarget.selectionStart)}
+                    placeholder="Write a comment... use @name to tag someone"
+                    rows={3}
+                    className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30 transition-all resize-none text-sm"
+                  />
+                  {activeMentionQuery !== null && mentionCandidatesQuery.data && mentionCandidatesQuery.data.length > 0 && (
+                    <div className="absolute left-0 right-0 top-full z-20 mt-2 overflow-hidden rounded-xl border border-white/10 bg-black/95 shadow-2xl backdrop-blur-xl">
+                      {mentionCandidatesQuery.data.map((candidate) => (
+                        <button
+                          key={candidate.id}
+                          type="button"
+                          onClick={() => insertMention(candidate.handle)}
+                          className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-white/5"
+                        >
+                          {candidate.avatarUrl ? (
+                            <img src={candidate.avatarUrl} alt="" className="h-7 w-7 rounded-full object-cover" />
+                          ) : (
+                            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/15">
+                              <User className="h-3.5 w-3.5 text-primary" />
+                            </span>
+                          )}
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm font-medium text-foreground">
+                              {candidate.name}
+                            </span>
+                            <span className="block truncate text-xs text-muted-foreground">
+                              @{candidate.handle}
+                            </span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Tag people with their handle, like <span className="text-primary">@username</span>.
+                </p>
                 <div className="flex justify-end mt-3">
                   <Button
                     type="submit"
@@ -362,9 +454,13 @@ export default function ArticleDetail() {
                           <User className="w-3 h-3 text-muted-foreground" />
                         </div>
                       )}
-                      <span className="text-sm font-medium text-foreground">
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/users/${comment.authorId}`)}
+                        className="text-sm font-medium text-foreground transition-colors hover:text-primary"
+                      >
                         {comment.authorName || "Anonymous"}
-                      </span>
+                      </button>
                       {getRoleBadge(comment.authorRole)}
                       <span className="text-xs text-muted-foreground">
                         {new Date(comment.createdAt).toLocaleDateString()}
@@ -386,7 +482,7 @@ export default function ArticleDetail() {
                     )}
                   </div>
                   <p className="text-sm text-muted-foreground whitespace-pre-wrap">
-                    {comment.content}
+                    {renderCommentContent(comment.content)}
                   </p>
                 </div>
               ))}

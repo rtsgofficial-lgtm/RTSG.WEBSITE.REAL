@@ -186,6 +186,18 @@ function formatLockoutMessage(lockedUntil: Date) {
   return `Too many failed login attempts. Please wait ${minutes} minute${minutes === 1 ? "" : "s"} before trying again.`;
 }
 
+function extractMentionHandles(content: string) {
+  const handles = new Set<string>();
+  const mentionPattern = /(^|[\s([{])@([a-z0-9][a-z0-9_-]{1,31})\b/gi;
+  let match: RegExpExecArray | null;
+
+  while ((match = mentionPattern.exec(content)) !== null) {
+    handles.add(match[2].toLowerCase());
+  }
+
+  return Array.from(handles);
+}
+
 async function setSessionCookie(ctx: any, user: NonNullable<Awaited<ReturnType<typeof db.getUserById>>>) {
   const sessionToken = await import("./_core/sdk").then(({ sdk }) =>
     sdk.createSessionToken(user.openId, {
@@ -750,8 +762,25 @@ export const appRouter = router({
     getById: publicProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
       const user = await db.getUserById(input.id);
       if (!user) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
-      return { id: user.id, name: user.name, role: user.role, avatarUrl: user.avatarUrl, createdAt: user.createdAt };
+      return {
+        id: user.id,
+        name: user.name,
+        role: user.role,
+        avatarUrl: user.avatarUrl,
+        profileBio: user.profileBio,
+        createdAt: user.createdAt,
+      };
     }),
+    profile: publicProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
+      const profile = await db.getPublicUserProfile(input.id);
+      if (!profile) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
+      return profile;
+    }),
+    mentionSearch: protectedProcedure
+      .input(z.object({ query: z.string().max(64).optional() }).optional())
+      .query(async ({ input }) => {
+        return db.searchMentionableUsers(input?.query ?? "");
+      }),
     uploadAvatar: protectedProcedure
       .input(z.object({ imageBase64: z.string(), mimeType: z.string() }))
       .mutation(async ({ input, ctx }) => {
@@ -790,6 +819,12 @@ export const appRouter = router({
       .input(z.object({ displayName: z.string().min(1).max(100) }))
       .mutation(async ({ input, ctx }) => {
         await db.updateUserDisplayName(ctx.user.id, input.displayName);
+        return { success: true };
+      }),
+    updateProfileBio: protectedProcedure
+      .input(z.object({ profileBio: z.string().max(800) }))
+      .mutation(async ({ input, ctx }) => {
+        await db.updateUserProfileBio(ctx.user.id, input.profileBio.trim());
         return { success: true };
       }),
   }),
@@ -937,7 +972,46 @@ export const appRouter = router({
           throw new TRPCError({ code: "FORBIDDEN", message: "Your account is muted and cannot create comments" });
         }
         await checkSpamAndAutoMute(ctx.user, "comment");
-        await db.createComment(input.content, input.articleId, ctx.user.id);
+        const article = await db.getArticleById(input.articleId);
+        if (!article) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Article not found" });
+        }
+        if (article.isLocked) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Comments are locked on this article" });
+        }
+
+        const commentId = await db.createComment(input.content, input.articleId, ctx.user.id);
+        if (commentId && article.authorId !== ctx.user.id) {
+          await db.createArticleCommentNotification({
+            userId: article.authorId,
+            actorId: ctx.user.id,
+            articleId: article.id,
+            commentId,
+          });
+        }
+
+        if (commentId) {
+          const mentionedUsers = await db.findUsersByMentionHandles(extractMentionHandles(input.content));
+          const notifiedUserIds = new Set<number>([ctx.user.id]);
+          if (article.authorId !== ctx.user.id) {
+            notifiedUserIds.add(article.authorId);
+          }
+
+          await Promise.all(
+            mentionedUsers
+              .filter((mentionedUser) => !notifiedUserIds.has(mentionedUser.id))
+              .map(async (mentionedUser) => {
+                notifiedUserIds.add(mentionedUser.id);
+                await db.createArticleCommentNotification({
+                  userId: mentionedUser.id,
+                  actorId: ctx.user.id,
+                  articleId: article.id,
+                  commentId,
+                  type: "comment_mention",
+                });
+              })
+          );
+        }
         return { success: true };
       }),
     delete: publicProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
@@ -956,6 +1030,32 @@ export const appRouter = router({
       }
 
       await db.deleteComment(input.id);
+      return { success: true };
+    }),
+  }),
+
+  // ─── Notifications ───────────────────────────────────────────────────────
+
+  notifications: router({
+    list: protectedProcedure.query(async ({ ctx }) => {
+      const [items, unreadCount] = await Promise.all([
+        db.getNotificationsForUser(ctx.user.id),
+        db.getUnreadNotificationCount(ctx.user.id),
+      ]);
+
+      return { items, unreadCount };
+    }),
+    unreadCount: protectedProcedure.query(async ({ ctx }) => {
+      return { count: await db.getUnreadNotificationCount(ctx.user.id) };
+    }),
+    markRead: protectedProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        await db.markNotificationRead(ctx.user.id, input.id);
+        return { success: true };
+      }),
+    markAllRead: protectedProcedure.mutation(async ({ ctx }) => {
+      await db.markAllNotificationsRead(ctx.user.id);
       return { success: true };
     }),
   }),

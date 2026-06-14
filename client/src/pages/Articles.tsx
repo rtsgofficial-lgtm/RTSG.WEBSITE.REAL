@@ -154,10 +154,18 @@ export default function Articles() {
 
                     {/* Meta */}
                     <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                      <span className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          navigate(`/users/${article.authorId}`);
+                        }}
+                        className="flex items-center gap-1 transition-colors hover:text-primary"
+                      >
                         <User className="w-3 h-3" />
                         {article.authorName || "Anonymous"}
-                      </span>
+                      </button>
                       <span className="flex items-center gap-1">
                         <Clock className="w-3 h-3" />
                         {new Date(article.createdAt).toLocaleDateString()}

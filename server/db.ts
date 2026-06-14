@@ -10,6 +10,7 @@ import {
   adminCredentials,
   articles,
   comments,
+  notifications,
   sitePages,
   contactMessages,
   siteSettings,
@@ -29,6 +30,26 @@ export async function getDb() {
     }
   }
   return _db;
+}
+
+const coreUserSelect = {
+  id: users.id,
+  openId: users.openId,
+  name: users.name,
+  email: users.email,
+  loginMethod: users.loginMethod,
+  role: users.role,
+  avatarUrl: users.avatarUrl,
+  profileBio: sql<string | null>`NULL`,
+  isMuted: users.isMuted,
+  createdAt: users.createdAt,
+  updatedAt: users.updatedAt,
+  lastSignedIn: users.lastSignedIn,
+};
+
+function isMissingProfileBioColumnError(error: unknown) {
+  const message = String((error as { message?: unknown })?.message ?? error);
+  return message.includes("profileBio") && (message.includes("Unknown column") || message.includes("ER_BAD_FIELD_ERROR"));
 }
 
 // ─── User Helpers ───────────────────────────────────────────────────────────
@@ -91,21 +112,109 @@ export async function upsertUser(user: InsertUser): Promise<void> {
 export async function getUserByOpenId(openId: string) {
   const db = await getDb();
   if (!db) return undefined;
-  const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
+  let result;
+  try {
+    result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
+  } catch (error) {
+    if (!isMissingProfileBioColumnError(error)) throw error;
+    result = await db.select(coreUserSelect).from(users).where(eq(users.openId, openId)).limit(1);
+  }
   return result.length > 0 ? result[0] : undefined;
 }
 
 export async function getUserById(userId: number) {
   const db = await getDb();
   if (!db) return undefined;
-  const result = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+  let result;
+  try {
+    result = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+  } catch (error) {
+    if (!isMissingProfileBioColumnError(error)) throw error;
+    result = await db.select(coreUserSelect).from(users).where(eq(users.id, userId)).limit(1);
+  }
   return result.length > 0 ? result[0] : undefined;
 }
 
 export async function getAllUsers() {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(users).orderBy(desc(users.createdAt));
+  try {
+    return await db.select().from(users).orderBy(desc(users.createdAt));
+  } catch (error) {
+    if (!isMissingProfileBioColumnError(error)) throw error;
+    return db.select(coreUserSelect).from(users).orderBy(desc(users.createdAt));
+  }
+}
+
+export function getMentionHandle(user: { id: number; name: string | null; email?: string | null }) {
+  const base = user.name?.trim() || user.email?.split("@")[0] || `user-${user.id}`;
+  const handle = base
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return handle || `user-${user.id}`;
+}
+
+export async function searchMentionableUsers(query: string, limit = 8) {
+  const db = await getDb();
+  if (!db) return [];
+
+  const trimmedQuery = query.trim().toLowerCase();
+  const allUsers = await db
+    .select({
+      id: users.id,
+      name: users.name,
+      avatarUrl: users.avatarUrl,
+      role: users.role,
+      email: users.email,
+    })
+    .from(users)
+    .orderBy(desc(users.createdAt))
+    .limit(100);
+
+  return allUsers
+    .map((user) => ({
+      id: user.id,
+      name: user.name || "Anonymous",
+      avatarUrl: user.avatarUrl,
+      role: user.role,
+      handle: getMentionHandle(user),
+    }))
+    .filter((user) => {
+      if (!trimmedQuery) return true;
+      return (
+        user.handle.includes(trimmedQuery) ||
+        user.name.toLowerCase().includes(trimmedQuery)
+      );
+    })
+    .slice(0, limit);
+}
+
+export async function findUsersByMentionHandles(handles: string[]) {
+  const db = await getDb();
+  if (!db || handles.length === 0) return [];
+
+  const normalizedHandles = new Set(handles.map((handle) => handle.toLowerCase()));
+  const allUsers = await db
+    .select({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+      avatarUrl: users.avatarUrl,
+      role: users.role,
+    })
+    .from(users);
+
+  return allUsers
+    .map((user) => ({
+      id: user.id,
+      name: user.name || "Anonymous",
+      avatarUrl: user.avatarUrl,
+      role: user.role,
+      handle: getMentionHandle(user),
+    }))
+    .filter((user) => normalizedHandles.has(user.handle));
 }
 
 export async function updateUserRole(userId: number, role: "user" | "admin" | "moderator") {
@@ -126,6 +235,43 @@ export async function updateUserDisplayName(userId: number, displayName: string)
   await db.update(users).set({ name: displayName }).where(eq(users.id, userId));
 }
 
+export async function updateUserProfileBio(userId: number, profileBio: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(users).set({ profileBio }).where(eq(users.id, userId));
+}
+
+export async function getPublicUserProfile(userId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  const selectPublicProfile = (profileBio: typeof users.profileBio | ReturnType<typeof sql<string | null>>) =>
+    db
+      .select({
+        id: users.id,
+        name: users.name,
+        role: users.role,
+        avatarUrl: users.avatarUrl,
+        profileBio,
+        createdAt: users.createdAt,
+        lastSignedIn: users.lastSignedIn,
+        articleCount: sql<number>`(SELECT COUNT(*) FROM articles WHERE articles.authorId = ${users.id} AND articles.isPublished = true)`,
+      })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+  let result;
+  try {
+    result = await selectPublicProfile(users.profileBio);
+  } catch (error) {
+    if (!isMissingProfileBioColumnError(error)) throw error;
+    result = await selectPublicProfile(sql<string | null>`NULL`);
+  }
+
+  return result[0];
+}
+
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
 }
@@ -137,7 +283,7 @@ export async function getUserByEmail(email: string) {
   const normalizedEmail = normalizeEmail(email);
 
   const result = await database
-    .select()
+    .select(coreUserSelect)
     .from(users)
     .where(eq(users.email, normalizedEmail))
     .limit(1);
@@ -537,6 +683,7 @@ export async function updateArticle(
 export async function deleteArticle(articleId: number) {
   const db = await getDb();
   if (!db) return;
+  await db.delete(notifications).where(eq(notifications.articleId, articleId));
   await db.delete(comments).where(eq(comments.articleId, articleId));
   await db.delete(articles).where(eq(articles.id, articleId));
 }
@@ -568,6 +715,7 @@ export async function deleteArticlesByAuthor(authorId: number): Promise<number> 
     return 0;
   }
 
+  await db.delete(notifications).where(inArray(notifications.articleId, articleIds));
   await db.delete(comments).where(inArray(comments.articleId, articleIds));
   await db.delete(articles).where(inArray(articles.id, articleIds));
 
@@ -639,8 +787,9 @@ export async function getCommentsByArticle(articleId: number) {
 
 export async function createComment(content: string, articleId: number, authorId: number) {
   const db = await getDb();
-  if (!db) return;
-  await db.insert(comments).values({ content, articleId, authorId });
+  if (!db) return undefined;
+  const result = await db.insert(comments).values({ content, articleId, authorId });
+  return result[0].insertId;
 }
 
 export async function getCommentById(commentId: number) {
@@ -666,6 +815,7 @@ export async function getCommentById(commentId: number) {
 export async function deleteComment(commentId: number) {
   const db = await getDb();
   if (!db) return;
+  await db.delete(notifications).where(eq(notifications.commentId, commentId));
   await db.delete(comments).where(eq(comments.id, commentId));
 }
 
@@ -684,9 +834,87 @@ export async function deleteCommentsByAuthor(authorId: number): Promise<number> 
     return 0;
   }
 
+  await db.delete(notifications).where(inArray(notifications.commentId, commentIds));
   await db.delete(comments).where(inArray(comments.id, commentIds));
 
   return commentIds.length;
+}
+
+// ─── Notifications ────────────────────────────────────────────────────────
+
+export async function createArticleCommentNotification(input: {
+  userId: number;
+  actorId: number;
+  articleId: number;
+  commentId: number;
+  type?: "article_comment" | "comment_mention";
+}) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(notifications).values({
+    userId: input.userId,
+    actorId: input.actorId,
+    type: input.type ?? "article_comment",
+    articleId: input.articleId,
+    commentId: input.commentId,
+  });
+}
+
+export async function getNotificationsForUser(userId: number, limit = 20) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return db
+    .select({
+      id: notifications.id,
+      type: notifications.type,
+      articleId: notifications.articleId,
+      commentId: notifications.commentId,
+      isRead: notifications.isRead,
+      createdAt: notifications.createdAt,
+      actorId: notifications.actorId,
+      actorName: users.name,
+      actorAvatar: users.avatarUrl,
+      articleTitle: articles.title,
+    })
+    .from(notifications)
+    .leftJoin(users, eq(notifications.actorId, users.id))
+    .leftJoin(articles, eq(notifications.articleId, articles.id))
+    .where(eq(notifications.userId, userId))
+    .orderBy(desc(notifications.createdAt))
+    .limit(limit);
+}
+
+export async function getUnreadNotificationCount(userId: number) {
+  const db = await getDb();
+  if (!db) return 0;
+
+  const result = await db
+    .select({ count: sql<number>`COUNT(*)` })
+    .from(notifications)
+    .where(and(eq(notifications.userId, userId), eq(notifications.isRead, false)));
+
+  return Number(result[0]?.count ?? 0);
+}
+
+export async function markNotificationRead(userId: number, notificationId: number) {
+  const db = await getDb();
+  if (!db) return;
+
+  await db
+    .update(notifications)
+    .set({ isRead: true })
+    .where(and(eq(notifications.id, notificationId), eq(notifications.userId, userId)));
+}
+
+export async function markAllNotificationsRead(userId: number) {
+  const db = await getDb();
+  if (!db) return;
+
+  await db
+    .update(notifications)
+    .set({ isRead: true })
+    .where(and(eq(notifications.userId, userId), eq(notifications.isRead, false)));
 }
 
 // ─── Site Pages ─────────────────────────────────────────────────────────────

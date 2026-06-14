@@ -29,6 +29,20 @@
       "when": 1780830966014,
       "tag": "0003_massive_makkari",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1781231970458,
+      "tag": "0004_user_notifications",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1781236453975,
+      "tag": "0005_user_profile_bio",
+      "breakpoints": true
     }
   ]
 }

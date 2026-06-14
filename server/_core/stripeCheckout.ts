@@ -327,36 +327,49 @@ export async function handleStripeWebhook(req: Request, res: Response) {
 
   if (event.type === "checkout.session.completed") {
     const eventSession = event.data.object;
-    const session = await stripe.checkout.sessions.retrieve(eventSession.id);
 
-    if (session.metadata?.checkoutType === "donation") {
-      console.log("[Stripe] Donation checkout completed", {
-        sessionId: eventSession.id,
-        donationInterval: session.metadata?.donationInterval,
-        amountCents: session.metadata?.amountCents,
+    try {
+      const session = await stripe.checkout.sessions.retrieve(eventSession.id);
+
+      if (session.metadata?.checkoutType === "donation") {
+        console.log("[Stripe] Donation checkout completed", {
+          sessionId: eventSession.id,
+          donationInterval: session.metadata?.donationInterval,
+          amountCents: session.metadata?.amountCents,
+        });
+        res.json({ received: true });
+        return;
+      }
+
+      const order = await createPrintfulDraftOrderFromStripeSession(session);
+      const emailResult = await sendCheckoutOrderConfirmation(session, order).catch((error) => {
+        console.error("[Resend] Failed to send shop order confirmation", {
+          sessionId: eventSession.id,
+          message: error instanceof Error ? error.message : "Unknown error",
+        });
+
+        return { sent: false, reason: "send_failed" as const };
       });
-      res.json({ received: true });
-      return;
-    }
 
-    const order = await createPrintfulDraftOrderFromStripeSession(session);
-    const emailResult = await sendCheckoutOrderConfirmation(session, order).catch((error) => {
-      console.error("[Resend] Failed to send shop order confirmation", {
+      console.log("[Stripe] Checkout completed and Printful draft created", {
         sessionId: eventSession.id,
+        productId: eventSession.metadata?.productId,
+        variantId: eventSession.metadata?.variantId,
+        printfulOrderId: order.id,
+        printfulOrderStatus: order.status,
+        orderEmail: emailResult,
+      });
+    } catch (error) {
+      console.error("[Stripe] Failed to process shop checkout webhook", {
+        sessionId: eventSession.id,
+        productId: eventSession.metadata?.productId,
+        variantId: eventSession.metadata?.variantId,
         message: error instanceof Error ? error.message : "Unknown error",
       });
 
-      return { sent: false, reason: "send_failed" as const };
-    });
-
-    console.log("[Stripe] Checkout completed and Printful draft created", {
-      sessionId: eventSession.id,
-      productId: eventSession.metadata?.productId,
-      variantId: eventSession.metadata?.variantId,
-      printfulOrderId: order.id,
-      printfulOrderStatus: order.status,
-      orderEmail: emailResult,
-    });
+      res.status(500).json({ received: false, error: "shop_webhook_failed" });
+      return;
+    }
   }
 
   res.json({ received: true });

@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import type Stripe from "stripe";
 import { ENV } from "./env";
 import { findShopProduct, SHOP_PRODUCTS } from "./shopCatalog";
@@ -27,6 +28,15 @@ type PrintfulOrderResponse = {
   };
 };
 
+type StripeShippingDetails = {
+  name?: string | null;
+  address?: Stripe.Address | null;
+};
+
+type StripeSessionWithShippingDetails = Stripe.Checkout.Session & {
+  shipping_details?: StripeShippingDetails | null;
+};
+
 function getPrintfulHeaders() {
   const apiKey = ENV.printfulApiKey.trim();
   const storeId = ENV.printfulStoreId.trim();
@@ -47,16 +57,28 @@ function getPrintfulHeaders() {
 }
 
 function toPrintfulRecipient(session: Stripe.Checkout.Session): PrintfulRecipient {
-  const shipping = session.collected_information?.shipping_details;
-  const address = shipping?.address;
+  const legacyShipping = (session as StripeSessionWithShippingDetails).shipping_details;
+  const shipping = session.collected_information?.shipping_details ?? legacyShipping;
   const customer = session.customer_details;
+  const address = shipping?.address ?? customer?.address;
+  const name = shipping?.name ?? customer?.name;
 
-  if (!shipping?.name || !address?.line1 || !address.city || !address.country || !address.postal_code) {
-    throw new Error("Stripe session is missing shipping details required for Printful.");
+  const missingFields = [
+    !name ? "name" : null,
+    !address?.line1 ? "address line 1" : null,
+    !address?.city ? "city" : null,
+    !address?.country ? "country" : null,
+    !address?.postal_code ? "postal code" : null,
+  ].filter(Boolean);
+
+  if (!name || !address?.line1 || !address.city || !address.country || !address.postal_code) {
+    throw new Error(
+      `Stripe session ${session.id} is missing shipping details required for Printful: ${missingFields.join(", ")}.`
+    );
   }
 
   return {
-    name: shipping.name,
+    name,
     address1: address.line1,
     address2: address.line2 ?? undefined,
     city: address.city,
@@ -66,6 +88,10 @@ function toPrintfulRecipient(session: Stripe.Checkout.Session): PrintfulRecipien
     email: customer?.email ?? undefined,
     phone: customer?.phone ?? undefined,
   };
+}
+
+function getPrintfulExternalId(sessionId: string) {
+  return `rtsg${createHash("sha256").update(sessionId).digest("hex").slice(0, 28)}`;
 }
 
 async function getExistingPrintfulOrder(externalId: string) {
@@ -80,7 +106,9 @@ async function getExistingPrintfulOrder(externalId: string) {
   const body = (await response.json()) as PrintfulOrderResponse;
 
   if (!response.ok) {
-    throw new Error(body.error?.message ?? "Unable to check existing Printful order.");
+    throw new Error(
+      body.error?.message ?? `Unable to check existing Printful order. Printful returned ${response.status}.`
+    );
   }
 
   return body.result ?? null;
@@ -96,17 +124,27 @@ export async function createPrintfulDraftOrderFromStripeSession(session: Stripe.
     throw new Error("Stripe session does not map to a Printful product variant.");
   }
 
-  const existingOrder = await getExistingPrintfulOrder(session.id);
+  const externalId = getPrintfulExternalId(session.id);
+  const existingOrder = await getExistingPrintfulOrder(externalId);
 
   if (existingOrder) {
     return existingOrder;
   }
 
+  console.log("[Printful] Creating draft order", {
+    sessionId: session.id,
+    printfulExternalId: externalId,
+    productId: product.id,
+    variantId: variant.id,
+    printfulSyncVariantId: variant.printfulSyncVariantId,
+    printfulStoreId: ENV.printfulStoreId,
+  });
+
   const response = await fetch("https://api.printful.com/orders", {
     method: "POST",
     headers: getPrintfulHeaders(),
     body: JSON.stringify({
-      external_id: session.id,
+      external_id: externalId,
       recipient: toPrintfulRecipient(session),
       items: [
         {
@@ -123,7 +161,16 @@ export async function createPrintfulDraftOrderFromStripeSession(session: Stripe.
   const body = (await response.json()) as PrintfulOrderResponse;
 
   if (!response.ok) {
-    throw new Error(body.error?.message ?? "Unable to create Printful draft order.");
+    console.error("[Printful] Failed to create draft order", {
+      sessionId: session.id,
+      printfulExternalId: externalId,
+      status: response.status,
+      code: body.code,
+      reason: body.error?.reason,
+      message: body.error?.message,
+    });
+
+    throw new Error(body.error?.message ?? `Unable to create Printful draft order. Printful returned ${response.status}.`);
   }
 
   if (!body.result) {
