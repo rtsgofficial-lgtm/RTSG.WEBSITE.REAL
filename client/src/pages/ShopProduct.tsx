@@ -10,8 +10,6 @@ const SHOP_BACKGROUND_VIDEO =
 export default function ShopProduct() {
   const [, params] = useRoute("/shop/:productId");
   const productId = params?.productId ?? "";
-  const checkoutStatus =
-    typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("checkout") : null;
   const { data: product, isLoading } = trpc.shop.getProduct.useQuery(
     { productId },
     { enabled: Boolean(productId) }
@@ -232,13 +230,6 @@ export default function ShopProduct() {
               {isRedirecting ? "Opening checkout" : "Checkout"}
               {isRedirecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUpRight className="h-4 w-4" />}
             </button>
-
-            {checkoutStatus === "success" && (
-              <p className="text-sm text-white/62">Payment received. Your order confirmation is being prepared.</p>
-            )}
-            {checkoutStatus === "cancelled" && (
-              <p className="text-sm text-white/62">Checkout was cancelled. Your product selection is still here.</p>
-            )}
           </section>
         </div>
       </div>

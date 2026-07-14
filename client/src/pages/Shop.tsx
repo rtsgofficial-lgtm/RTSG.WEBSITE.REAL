@@ -8,11 +8,13 @@ const SHOP_BACKGROUND_VIDEO =
   "https://rs.rtsg.org/glossy-red-liquid-morphing-abstract-background-2026-01-28-03-03-51-utc_2d2a24cb.mp4";
 
 export default function Shop() {
-  const checkoutStatus =
-    typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("checkout") : null;
+  const checkoutParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+  const checkoutStatus = checkoutParams?.get("checkout") ?? null;
+  const checkoutProductId = checkoutParams?.get("product") ?? null;
   const { data: products = [] } = trpc.shop.listProducts.useQuery();
   const [selectedVariants, setSelectedVariants] = useState<Record<string, string>>({});
   const [pendingProductId, setPendingProductId] = useState<string | null>(null);
+  const checkoutProduct = products.find((product) => product.id === checkoutProductId);
   const createCheckout = trpc.shop.createCheckoutSession.useMutation({
     onSuccess: (session) => {
       if (!session.url) {
@@ -104,6 +106,17 @@ export default function Shop() {
               Collection 01
             </p>
           </div>
+
+          {checkoutStatus === "success" && (
+            <p className="mt-6 max-w-xl text-sm leading-relaxed text-white/64">
+              Payment received{checkoutProduct ? ` for ${checkoutProduct.name}` : ""}. Your order confirmation is on its way.
+            </p>
+          )}
+          {checkoutStatus === "cancelled" && (
+            <p className="mt-6 max-w-xl text-sm leading-relaxed text-white/64">
+              Checkout was cancelled. No charge was made, and your selected item is still below.
+            </p>
+          )}
         </section>
 
         <section className="shop-products-panel">
@@ -202,16 +215,6 @@ export default function Shop() {
           ))}
         </section>
 
-        {checkoutStatus === "success" && (
-          <p className="mt-5 text-sm text-white/62">
-            Payment received. Your order confirmation is being prepared.
-          </p>
-        )}
-        {checkoutStatus === "cancelled" && (
-          <p className="mt-5 text-sm text-white/62">
-            Checkout was cancelled. Your cart is still here.
-          </p>
-        )}
       </div>
     </div>
   );

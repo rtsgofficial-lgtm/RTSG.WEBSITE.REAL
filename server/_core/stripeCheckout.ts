@@ -201,8 +201,8 @@ export async function createShopCheckoutSession(input: {
       printfulSyncProductId: String(product.printfulSyncProductId),
       printfulSyncVariantId: String(variant.printfulSyncVariantId),
     },
-    success_url: `${input.origin}/shop/${product.id}?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${input.origin}/shop/${product.id}?checkout=cancelled`,
+    success_url: `${input.origin}/shop?checkout=success&product=${product.id}&session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${input.origin}/shop?checkout=cancelled&product=${product.id}`,
   });
 
   return {
