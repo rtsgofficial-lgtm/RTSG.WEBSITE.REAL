@@ -6,8 +6,10 @@ import {
   userCredentials,
   passwordResetTokens,
   loginRateLimits,
+  adminLoginRateLimits,
   passwordResetRateLimits,
   adminCredentials,
+  adminActionLogs,
   articles,
   comments,
   notifications,
@@ -50,6 +52,18 @@ const coreUserSelect = {
 function isMissingProfileBioColumnError(error: unknown) {
   const message = String((error as { message?: unknown })?.message ?? error);
   return message.includes("profileBio") && (message.includes("Unknown column") || message.includes("ER_BAD_FIELD_ERROR"));
+}
+
+function isMissingAdminSecurityTableError(error: unknown) {
+  const message = String((error as { message?: unknown })?.message ?? error);
+  return (
+    (message.includes("admin_login_rate_limits") || message.includes("admin_action_logs")) &&
+    (message.includes("doesn't exist") ||
+      message.includes("does not exist") ||
+      message.includes("ER_NO_SUCH_TABLE") ||
+      message.includes("Table") ||
+      message.includes("no such table"))
+  );
 }
 
 // ─── User Helpers ───────────────────────────────────────────────────────────
@@ -276,6 +290,10 @@ function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
 }
 
+function normalizeAdminUsername(username: string) {
+  return username.trim().toLowerCase();
+}
+
 export async function getUserByEmail(email: string) {
   const database = await getDb();
   if (!database) return null;
@@ -442,6 +460,89 @@ export async function clearLoginFailures(email: string) {
     .where(eq(loginRateLimits.email, normalizeEmail(email)));
 }
 
+export async function getAdminLoginRateLimit(username: string) {
+  const database = await getDb();
+  if (!database) return null;
+
+  let result;
+  try {
+    result = await database
+      .select()
+      .from(adminLoginRateLimits)
+      .where(eq(adminLoginRateLimits.username, normalizeAdminUsername(username)))
+      .limit(1);
+  } catch (error) {
+    if (!isMissingAdminSecurityTableError(error)) throw error;
+    return null;
+  }
+
+  return result[0] ?? null;
+}
+
+export async function recordFailedAdminLoginAttempt(username: string, maxAttempts: number, lockoutMs: number) {
+  const database = await getDb();
+  if (!database) return null;
+
+  const normalizedUsername = normalizeAdminUsername(username);
+  const existing = await getAdminLoginRateLimit(normalizedUsername);
+  const now = new Date();
+  const existingLock = existing?.lockedUntil;
+
+  if (existingLock && existingLock.getTime() > now.getTime()) {
+    return existing;
+  }
+
+  const nextFailedAttemptCount = (existing?.failedAttemptCount ?? 0) + 1;
+  const lockedUntil =
+    nextFailedAttemptCount >= maxAttempts ? new Date(now.getTime() + lockoutMs) : null;
+
+  try {
+    if (existing) {
+      await database
+        .update(adminLoginRateLimits)
+        .set({
+          failedAttemptCount: nextFailedAttemptCount,
+          lockedUntil,
+          lastFailedAt: now,
+        })
+        .where(eq(adminLoginRateLimits.username, normalizedUsername));
+    } else {
+      await database.insert(adminLoginRateLimits).values({
+        username: normalizedUsername,
+        failedAttemptCount: nextFailedAttemptCount,
+        lockedUntil,
+        lastFailedAt: now,
+      });
+    }
+  } catch (error) {
+    if (!isMissingAdminSecurityTableError(error)) throw error;
+    return null;
+  }
+
+  return {
+    id: existing?.id ?? 0,
+    username: normalizedUsername,
+    failedAttemptCount: nextFailedAttemptCount,
+    lockedUntil,
+    lastFailedAt: now,
+    updatedAt: now,
+  };
+}
+
+export async function clearAdminLoginFailures(username: string) {
+  const database = await getDb();
+  if (!database) return;
+
+  try {
+    await database
+      .update(adminLoginRateLimits)
+      .set({ failedAttemptCount: 0, lockedUntil: null, lastFailedAt: null })
+      .where(eq(adminLoginRateLimits.username, normalizeAdminUsername(username)));
+  } catch (error) {
+    if (!isMissingAdminSecurityTableError(error)) throw error;
+  }
+}
+
 export async function shouldAllowPasswordResetRequest(
   email: string,
   maxRequests: number,
@@ -546,10 +647,11 @@ export async function markPasswordResetTokenUsed(tokenId: number) {
 export async function getAdminCredentialByUsername(username: string) {
   const db = await getDb();
   if (!db) return undefined;
+  const normalizedUsername = normalizeAdminUsername(username);
   const result = await db
     .select()
     .from(adminCredentials)
-    .where(eq(adminCredentials.username, username))
+    .where(or(eq(adminCredentials.username, username), eq(adminCredentials.username, normalizedUsername)))
     .limit(1);
   return result.length > 0 ? result[0] : undefined;
 }
@@ -557,7 +659,7 @@ export async function getAdminCredentialByUsername(username: string) {
 export async function createAdminCredential(username: string, passwordHash: string) {
   const db = await getDb();
   if (!db) return;
-  await db.insert(adminCredentials).values({ username, passwordHash });
+  await db.insert(adminCredentials).values({ username: normalizeAdminUsername(username), passwordHash });
 }
 
 export async function adminCredentialExists() {
@@ -565,6 +667,55 @@ export async function adminCredentialExists() {
   if (!db) return false;
   const result = await db.select({ id: adminCredentials.id }).from(adminCredentials).limit(1);
   return result.length > 0;
+}
+
+export async function createAdminActionLog(input: {
+  actorType: string;
+  actorUsername?: string | null;
+  actorUserId?: number | null;
+  actorRole?: string | null;
+  action: string;
+  targetType?: string | null;
+  targetId?: string | number | null;
+  metadata?: Record<string, unknown> | null;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+}) {
+  const db = await getDb();
+  if (!db) return;
+
+  try {
+    await db.insert(adminActionLogs).values({
+      actorType: input.actorType,
+      actorUsername: input.actorUsername ?? null,
+      actorUserId: input.actorUserId ?? null,
+      actorRole: input.actorRole ?? null,
+      action: input.action,
+      targetType: input.targetType ?? null,
+      targetId: input.targetId === undefined || input.targetId === null ? null : String(input.targetId),
+      metadata: input.metadata ? JSON.stringify(input.metadata) : null,
+      ipAddress: input.ipAddress ?? null,
+      userAgent: input.userAgent?.slice(0, 512) ?? null,
+    });
+  } catch (error) {
+    if (!isMissingAdminSecurityTableError(error)) throw error;
+  }
+}
+
+export async function getAdminActionLogs(limit = 100) {
+  const db = await getDb();
+  if (!db) return [];
+
+  try {
+    return await db
+      .select()
+      .from(adminActionLogs)
+      .orderBy(desc(adminActionLogs.createdAt), desc(adminActionLogs.id))
+      .limit(limit);
+  } catch (error) {
+    if (!isMissingAdminSecurityTableError(error)) throw error;
+    return [];
+  }
 }
 
 // ─── Articles ──────────────────────────────────────────────────────────────

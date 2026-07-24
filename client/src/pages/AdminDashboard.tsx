@@ -22,12 +22,13 @@ import {
   MessageSquare,
   ShoppingBag,
   Globe2,
+  Activity,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 
-type Tab = "users" | "pages" | "messages" | "articles" | "shop" | "world" | "settings";
+type Tab = "users" | "pages" | "messages" | "articles" | "shop" | "world" | "settings" | "logs";
 
 type WorldProfileForm = {
   profileId: string;
@@ -102,6 +103,7 @@ export default function AdminDashboard() {
     { id: "shop", label: "Shop", icon: <ShoppingBag className="w-4 h-4" /> },
     { id: "world", label: "World", icon: <Globe2 className="w-4 h-4" /> },
     { id: "settings", label: "Settings", icon: <Settings className="w-4 h-4" /> },
+    { id: "logs", label: "Logs", icon: <Activity className="w-4 h-4" /> },
   ];
 
   return (
@@ -158,6 +160,84 @@ export default function AdminDashboard() {
         {activeTab === "shop" && <ShopPanel />}
         {activeTab === "world" && <WorldPanel />}
         {activeTab === "settings" && <SettingsPanel token={token} />}
+        {activeTab === "logs" && <LogsPanel />}
+      </div>
+    </div>
+  );
+}
+
+function formatLogMetadata(metadata: string | null) {
+  if (!metadata) return "—";
+
+  try {
+    const parsed = JSON.parse(metadata) as Record<string, unknown>;
+    const entries = Object.entries(parsed).filter(([, value]) => value !== null && value !== undefined && value !== "");
+    if (entries.length === 0) return "—";
+    return entries
+      .map(([key, value]) => `${key}: ${typeof value === "object" ? JSON.stringify(value) : String(value)}`)
+      .join(" • ");
+  } catch {
+    return metadata;
+  }
+}
+
+function LogsPanel() {
+  const { data: logs, isLoading } = trpc.adminLogs.list.useQuery({ limit: 100 });
+
+  return (
+    <div className="animate-fade-in">
+      <h2 className="text-xl font-bold text-foreground mb-4">Admin Logs</h2>
+      <p className="text-sm text-muted-foreground mb-6">
+        Recent admin sign-ins, lockouts, and dashboard actions.
+      </p>
+
+      <div className="glass rounded-2xl overflow-hidden">
+        {isLoading ? (
+          <div className="p-8 text-center">
+            <div className="w-8 h-8 border-2 border-primary/30 border-t-primary rounded-full animate-spin mx-auto" />
+          </div>
+        ) : logs && logs.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-white/5">
+                  <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Time</th>
+                  <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Actor</th>
+                  <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Action</th>
+                  <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Target</th>
+                  <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">IP</th>
+                  <th className="text-left px-5 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                {logs.map((log) => (
+                  <tr key={log.id} className="border-b border-white/5 last:border-0 hover:bg-white/[0.02] transition-colors">
+                    <td className="px-5 py-4 text-sm text-muted-foreground whitespace-nowrap">
+                      {new Date(log.createdAt).toLocaleString()}
+                    </td>
+                    <td className="px-5 py-4">
+                      <div className="text-sm font-medium text-foreground">{log.actorUsername || "Unknown"}</div>
+                      <div className="text-xs text-muted-foreground">{log.actorRole || log.actorType}</div>
+                    </td>
+                    <td className="px-5 py-4 text-sm font-medium text-foreground whitespace-nowrap">{log.action}</td>
+                    <td className="px-5 py-4 text-sm text-muted-foreground whitespace-nowrap">
+                      {log.targetType ? `${log.targetType}${log.targetId ? `:${log.targetId}` : ""}` : "—"}
+                    </td>
+                    <td className="px-5 py-4 text-sm text-muted-foreground whitespace-nowrap">{log.ipAddress || "—"}</td>
+                    <td className="px-5 py-4 text-xs text-muted-foreground min-w-[16rem]">
+                      {formatLogMetadata(log.metadata)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="p-12 text-center">
+            <Activity className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
+            <p className="text-muted-foreground">No admin logs yet.</p>
+          </div>
+        )}
       </div>
     </div>
   );

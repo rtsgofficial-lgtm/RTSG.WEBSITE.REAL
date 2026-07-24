@@ -21,7 +21,7 @@ export const ENV = {
   stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? "",
   printfulApiKey: process.env.PRINTFUL_API ?? process.env.PRINTFUL_API_KEY ?? "",
   printfulStoreId: process.env.PRINTFUL_STORE_ID ?? "18281109",
-  substackFeedUrl: process.env.SUBSTACK_FEED_URL ?? "https://rtsg.media/feed",
+  substackFeedUrl: process.env.SUBSTACK_FEED_URL ?? "https://media.rtsg.org/feed",
   siteUrl: (
     process.env.SITE_URL ??
     process.env.PUBLIC_SITE_URL ??

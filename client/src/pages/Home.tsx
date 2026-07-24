@@ -216,7 +216,7 @@ export default function Home() {
         <section className="relative z-[2] py-20">
           <div className="container max-w-5xl mx-auto">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <a href="https://rtsg.media" target="_blank" rel="noopener noreferrer" aria-label="Open RTSG Substack">
+              <a href="media.rtsg.org" target="_blank" rel="noopener noreferrer" aria-label="Open RTSG Substack">
                 <div className="glass glass-hover rounded-2xl p-6 animate-fade-in cursor-pointer hover:bg-white/10 transition-colors">
                   <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center mb-4">
                     <Newspaper className="w-5 h-5 text-primary" />
@@ -274,7 +274,7 @@ export default function Home() {
                   </div>
                 </div>
                 <a
-                  href="https://rtsg.media"
+                  href="media.rtsg.org"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="glitch-hover flex shrink-0 items-center gap-1.5 text-xs text-primary hover:underline"
@@ -331,7 +331,7 @@ export default function Home() {
                 </a>
               ) : (
                 <a
-                  href="https://rtsg.media"
+                  href="media.rtsg.org"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="group flex flex-1 items-center justify-between gap-5 rounded-xl border border-white/10 bg-white/[0.03] p-5 transition-colors hover:bg-white/[0.06]"

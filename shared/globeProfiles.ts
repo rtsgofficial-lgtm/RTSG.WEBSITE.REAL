@@ -121,7 +121,7 @@ export const GLOBE_PROFILES: GlobeProfile[] = [
     communistParty: "Tudeh Party of Iran",
     communistPartyUrl: "https://www.tudehpartyiran.org/en/home/",
     researchTitle: "The End of Modernity",
-    researchUrl: "https://www.rtsg.media/p/the-end-of-modenity-heidegger-and",
+    researchUrl: "https://www.media.rtsg.org/p/the-end-of-modenity-heidegger-and",
     description:
       "Iran occupies a central position in West Asia, shaped by energy sovereignty, sanctions pressure, and resistance to outside domination. Its regional role is tied to the defense of national independence and a multipolar balance against Western-aligned power blocs.",
   },
@@ -140,7 +140,7 @@ export const GLOBE_PROFILES: GlobeProfile[] = [
     communistParty: "Communist Party of China",
     communistPartyUrl: "https://english.www.gov.cn/",
     researchTitle: "How China Beats the West",
-    researchUrl: "https://www.rtsg.media/p/how-china-beats-the-west-in-its-own",
+    researchUrl: "https://www.media.rtsg.org/p/how-china-beats-the-west-in-its-own",
     description:
       "China is a core pole in the emerging multipolar order, combining industrial scale, state planning, infrastructure diplomacy, and long-term sovereignty strategy. Its development model challenges the assumption that global modernization must follow Western liberal capitalism.",
   },
@@ -190,7 +190,7 @@ export const GLOBE_PROFILES: GlobeProfile[] = [
     communistParty: "American Communist Party",
     communistPartyUrl: "https://acp.us",
     researchTitle: "The Political Economy of Barbarism",
-    researchUrl: "https://www.rtsg.media/p/the-political-economy-of-barbarism",
+    researchUrl: "https://www.media.rtsg.org/p/the-political-economy-of-barbarism",
     description:
       "The United States is the central organizer of the contemporary imperial system, projecting power through finance, sanctions, military basing, intelligence networks, and alliance discipline. Its internal contradictions sit beside immense productive capacity, a large working class, and recurring movements against war, austerity, and monopoly power.",
   },

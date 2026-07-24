@@ -43,6 +43,20 @@
       "when": 1781236453975,
       "tag": "0005_user_profile_bio",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1784390400000,
+      "tag": "0006_admin_lockouts_and_logs",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "5",
+      "when": 1784349066075,
+      "tag": "0007_ordinary_maggott",
+      "breakpoints": true
     }
   ]
 }

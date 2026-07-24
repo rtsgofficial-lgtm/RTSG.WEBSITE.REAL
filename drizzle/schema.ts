@@ -49,6 +49,15 @@ export const loginRateLimits = mysqlTable("login_rate_limits", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
+export const adminLoginRateLimits = mysqlTable("admin_login_rate_limits", {
+  id: int("id").autoincrement().primaryKey(),
+  username: varchar("username", { length: 64 }).notNull().unique(),
+  failedAttemptCount: int("failedAttemptCount").default(0).notNull(),
+  lockedUntil: timestamp("lockedUntil"),
+  lastFailedAt: timestamp("lastFailedAt"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
 export const passwordResetRateLimits = mysqlTable("password_reset_rate_limits", {
   id: int("id").autoincrement().primaryKey(),
   email: varchar("email", { length: 320 }).notNull().unique(),
@@ -60,6 +69,7 @@ export const passwordResetRateLimits = mysqlTable("password_reset_rate_limits", 
 
 export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
 export type LoginRateLimit = typeof loginRateLimits.$inferSelect;
+export type AdminLoginRateLimit = typeof adminLoginRateLimits.$inferSelect;
 export type PasswordResetRateLimit = typeof passwordResetRateLimits.$inferSelect;
 
 export type User = typeof users.$inferSelect;
@@ -76,6 +86,23 @@ export const adminCredentials = mysqlTable("admin_credentials", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
+
+export const adminActionLogs = mysqlTable("admin_action_logs", {
+  id: int("id").autoincrement().primaryKey(),
+  actorType: varchar("actorType", { length: 32 }).notNull(),
+  actorUsername: varchar("actorUsername", { length: 128 }),
+  actorUserId: int("actorUserId"),
+  actorRole: varchar("actorRole", { length: 32 }),
+  action: varchar("action", { length: 128 }).notNull(),
+  targetType: varchar("targetType", { length: 64 }),
+  targetId: varchar("targetId", { length: 128 }),
+  metadata: text("metadata"),
+  ipAddress: varchar("ipAddress", { length: 128 }),
+  userAgent: varchar("userAgent", { length: 512 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type AdminActionLog = typeof adminActionLogs.$inferSelect;
 
 /**
  * Articles (replaces forum threads).

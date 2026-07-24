@@ -217,7 +217,7 @@ async function setSessionCookie(ctx: any, user: NonNullable<Awaited<ReturnType<t
 // ─── Admin session tokens (in-memory store for server-side validation) ──────
 
 const adminSessions = new Map<string, { username: string; createdAt: number }>();
-const adminLoginAttempts = new Map<
+const fallbackAdminLoginAttempts = new Map<
   string,
   { failedAttemptCount: number; lockedUntil: number | null; lastFailedAt: number }
 >();
@@ -226,41 +226,44 @@ function normalizeAdminUsername(username: string) {
   return username.trim().toLowerCase();
 }
 
-function getAdminLoginLockout(username: string) {
+function getFallbackAdminLoginLockout(username: string) {
   const key = normalizeAdminUsername(username);
-  const attempt = adminLoginAttempts.get(key);
+  const attempt = fallbackAdminLoginAttempts.get(key);
 
   if (!attempt?.lockedUntil) return null;
 
   if (attempt.lockedUntil <= Date.now()) {
-    adminLoginAttempts.delete(key);
+    fallbackAdminLoginAttempts.delete(key);
     return null;
   }
 
   return new Date(attempt.lockedUntil);
 }
 
-function recordFailedAdminLogin(username: string) {
+function recordFallbackFailedAdminLogin(username: string) {
   const key = normalizeAdminUsername(username);
   const now = Date.now();
-  const existing = adminLoginAttempts.get(key);
+  const existing = fallbackAdminLoginAttempts.get(key);
   const failedAttemptCount = (existing?.failedAttemptCount ?? 0) + 1;
   const lockedUntil =
     failedAttemptCount >= ADMIN_LOGIN_MAX_FAILED_ATTEMPTS
       ? now + ADMIN_AUTH_LOCKOUT_MS
       : null;
 
-  adminLoginAttempts.set(key, {
+  fallbackAdminLoginAttempts.set(key, {
     failedAttemptCount,
     lockedUntil,
     lastFailedAt: now,
   });
 
-  return lockedUntil ? new Date(lockedUntil) : null;
+  return {
+    failedAttemptCount,
+    lockedUntil: lockedUntil ? new Date(lockedUntil) : null,
+  };
 }
 
-function clearFailedAdminLogins(username: string) {
-  adminLoginAttempts.delete(normalizeAdminUsername(username));
+function clearFallbackAdminLoginFailures(username: string) {
+  fallbackAdminLoginAttempts.delete(normalizeAdminUsername(username));
 }
 
 function cleanExpiredSessions() {
@@ -277,6 +280,104 @@ function validateAdminToken(token: string | undefined): boolean {
   if (!token) return false;
   cleanExpiredSessions();
   return adminSessions.has(token);
+}
+
+function getAdminSessionByToken(token: string | undefined) {
+  if (!token) return null;
+  cleanExpiredSessions();
+  return adminSessions.get(token) ?? null;
+}
+
+function getHeaderValue(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function getRequestIp(ctx: { req: any }) {
+  const forwardedFor = getHeaderValue(ctx.req.headers["x-forwarded-for"]);
+  return forwardedFor?.split(",")[0]?.trim() || ctx.req.ip || ctx.req.socket?.remoteAddress || null;
+}
+
+function getRequestUserAgent(ctx: { req: any }) {
+  return getHeaderValue(ctx.req.headers["user-agent"]) ?? null;
+}
+
+function getAdminActor(ctx: { req: any; user: any }) {
+  const authHeader = getHeaderValue(ctx.req.headers["x-admin-token"]);
+  const dashboardSession = getAdminSessionByToken(authHeader);
+
+  if (dashboardSession) {
+    return {
+      actorType: "dashboard",
+      actorUsername: dashboardSession.username,
+      actorUserId: null,
+      actorRole: "admin",
+    };
+  }
+
+  if (ctx.user && (ctx.user.role === "admin" || ctx.user.role === "moderator")) {
+    return {
+      actorType: "user",
+      actorUsername: ctx.user.email || ctx.user.name || `user:${ctx.user.id}`,
+      actorUserId: ctx.user.id,
+      actorRole: ctx.user.role,
+    };
+  }
+
+  return {
+    actorType: "unknown",
+    actorUsername: null,
+    actorUserId: null,
+    actorRole: null,
+  };
+}
+
+async function logAdminAction(
+  ctx: { req: any; user: any },
+  input: {
+    action: string;
+    targetType?: string | null;
+    targetId?: string | number | null;
+    metadata?: Record<string, unknown> | null;
+  }
+) {
+  const actor = getAdminActor(ctx);
+
+  try {
+    await db.createAdminActionLog({
+      ...actor,
+      action: input.action,
+      targetType: input.targetType,
+      targetId: input.targetId,
+      metadata: input.metadata,
+      ipAddress: getRequestIp(ctx),
+      userAgent: getRequestUserAgent(ctx),
+    });
+  } catch (error) {
+    console.error("[AdminAudit] Failed to record admin action:", error);
+  }
+}
+
+async function logAdminAuthAction(
+  ctx: { req: any; user: any },
+  action: string,
+  username: string,
+  metadata?: Record<string, unknown>
+) {
+  try {
+    await db.createAdminActionLog({
+      actorType: "admin_auth",
+      actorUsername: normalizeAdminUsername(username),
+      actorRole: "admin",
+      action,
+      targetType: "admin_session",
+      targetId: normalizeAdminUsername(username),
+      metadata,
+      ipAddress: getRequestIp(ctx),
+      userAgent: getRequestUserAgent(ctx),
+    });
+  } catch (error) {
+    console.error("[AdminAudit] Failed to record admin auth action:", error);
+  }
 }
 
 
@@ -487,7 +588,7 @@ const dashboardProcedure = publicProcedure.use(({ ctx, next }) => {
     return next({ ctx });
   }
   const authHeader = ctx.req.headers["x-admin-token"] as string | undefined;
-  if (validateAdminToken(authHeader)) {
+  if (getAdminSessionByToken(authHeader)) {
     return next({ ctx });
   }
   throw new TRPCError({ code: "FORBIDDEN", message: "Admin access required" });
@@ -688,10 +789,19 @@ export const appRouter = router({
   adminAuth: router({
     login: publicProcedure
       .input(z.object({ username: z.string(), password: z.string() }))
-      .mutation(async ({ input }) => {
-        const lockedUntil = getAdminLoginLockout(input.username);
+      .mutation(async ({ input, ctx }) => {
+        const username = normalizeAdminUsername(input.username);
+        const rateLimit = await db.getAdminLoginRateLimit(username);
+        const lockedUntil =
+          rateLimit?.lockedUntil && rateLimit.lockedUntil.getTime() > Date.now()
+            ? rateLimit.lockedUntil
+            : getFallbackAdminLoginLockout(username);
 
         if (lockedUntil) {
+          await logAdminAuthAction(ctx, "admin.login_blocked", username, {
+            failedAttemptCount: rateLimit?.failedAttemptCount ?? null,
+            lockedUntil: lockedUntil.toISOString(),
+          });
           throw new TRPCError({
             code: "TOO_MANY_REQUESTS",
             message: formatLockoutMessage(lockedUntil),
@@ -701,7 +811,23 @@ export const appRouter = router({
         const cred = await db.getAdminCredentialByUsername(input.username);
 
         if (!cred || !verifyPassword(input.password, cred.passwordHash)) {
-          const nextLockedUntil = recordFailedAdminLogin(input.username);
+          const failedAttempt = await db.recordFailedAdminLoginAttempt(
+            username,
+            ADMIN_LOGIN_MAX_FAILED_ATTEMPTS,
+            ADMIN_AUTH_LOCKOUT_MS
+          );
+          const fallbackFailedAttempt = failedAttempt
+            ? null
+            : recordFallbackFailedAdminLogin(username);
+          const nextLockedUntil =
+            failedAttempt?.lockedUntil && failedAttempt.lockedUntil.getTime() > Date.now()
+              ? failedAttempt.lockedUntil
+              : fallbackFailedAttempt?.lockedUntil ?? null;
+
+          await logAdminAuthAction(ctx, "admin.login_failed", username, {
+            failedAttemptCount: failedAttempt?.failedAttemptCount ?? fallbackFailedAttempt?.failedAttemptCount ?? null,
+            lockedUntil: nextLockedUntil?.toISOString() ?? null,
+          });
 
           if (nextLockedUntil) {
             throw new TRPCError({
@@ -713,10 +839,12 @@ export const appRouter = router({
           throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid credentials" });
         }
 
-        clearFailedAdminLogins(input.username);
+        await db.clearAdminLoginFailures(username);
+        clearFallbackAdminLoginFailures(username);
 
         const token = crypto.randomBytes(32).toString("hex");
         adminSessions.set(token, { username: cred.username, createdAt: Date.now() });
+        await logAdminAuthAction(ctx, "admin.login_success", cred.username);
         return { success: true, token, username: cred.username };
       }),
     verify: publicProcedure
@@ -726,25 +854,38 @@ export const appRouter = router({
       }),
     logout: publicProcedure
       .input(z.object({ token: z.string() }))
-      .mutation(({ input }) => {
+      .mutation(async ({ input, ctx }) => {
+        const session = getAdminSessionByToken(input.token);
         adminSessions.delete(input.token);
+        if (session) {
+          await logAdminAuthAction(ctx, "admin.logout", session.username);
+        }
         return { success: true };
       }),
     setup: publicProcedure
       .input(z.object({ username: z.string().min(3), password: z.string().min(6) }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const exists = await db.adminCredentialExists();
         if (exists) {
           throw new TRPCError({ code: "CONFLICT", message: "Admin credentials already configured" });
         }
         const passwordHash = hashPassword(input.password);
         await db.createAdminCredential(input.username, passwordHash);
+        await logAdminAuthAction(ctx, "admin.setup", input.username);
         return { success: true };
       }),
     hasCredentials: publicProcedure.query(async () => {
       const exists = await db.adminCredentialExists();
       return { exists };
     }),
+  }),
+
+  adminLogs: router({
+    list: dashboardProcedure
+      .input(z.object({ limit: z.number().int().min(1).max(200).optional() }).optional())
+      .query(async ({ input }) => {
+        return db.getAdminActionLogs(input?.limit ?? 100);
+      }),
   }),
 
   // ─── User Management ──────────────────────────────────────────────────────
@@ -755,8 +896,14 @@ export const appRouter = router({
     }),
     updateRole: dashboardProcedure
       .input(z.object({ userId: z.number(), role: z.enum(["user", "admin", "moderator"]) }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         await db.updateUserRole(input.userId, input.role);
+        await logAdminAction(ctx, {
+          action: "users.update_role",
+          targetType: "user",
+          targetId: input.userId,
+          metadata: { role: input.role },
+        });
         return { success: true };
       }),
     getById: publicProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
@@ -793,26 +940,48 @@ export const appRouter = router({
       }),
     mute: dashboardProcedure
       .input(z.object({ userId: z.number() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         await db.muteUser(input.userId);
+        await logAdminAction(ctx, {
+          action: "users.mute",
+          targetType: "user",
+          targetId: input.userId,
+        });
         return { success: true };
       }),
     unmute: dashboardProcedure
       .input(z.object({ userId: z.number() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         await db.unmuteUser(input.userId);
+        await logAdminAction(ctx, {
+          action: "users.unmute",
+          targetType: "user",
+          targetId: input.userId,
+        });
         return { success: true };
       }),
     deleteArticlesByUser: dashboardProcedure
       .input(z.object({ userId: z.number() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const deletedCount = await db.deleteArticlesByAuthor(input.userId);
+        await logAdminAction(ctx, {
+          action: "users.delete_articles",
+          targetType: "user",
+          targetId: input.userId,
+          metadata: { deletedCount },
+        });
         return { success: true, deletedCount };
       }),
     deleteCommentsByUser: dashboardProcedure
       .input(z.object({ userId: z.number() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const deletedCount = await db.deleteCommentsByAuthor(input.userId);
+        await logAdminAction(ctx, {
+          action: "users.delete_comments",
+          targetType: "user",
+          targetId: input.userId,
+          metadata: { deletedCount },
+        });
         return { success: true, deletedCount };
       }),
     updateDisplayName: protectedProcedure
@@ -928,18 +1097,38 @@ export const appRouter = router({
       }
 
       await db.deleteArticle(input.id);
+      if (isDashboardAdmin || isModerator) {
+        await logAdminAction(ctx, {
+          action: "articles.delete",
+          targetType: "article",
+          targetId: input.id,
+          metadata: { authorId: article.authorId, title: article.title },
+        });
+      }
       return { success: true };
     }),
     togglePin: modProcedure
       .input(z.object({ id: z.number(), isPinned: z.boolean() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         await db.togglePinArticle(input.id, input.isPinned);
+        await logAdminAction(ctx, {
+          action: "articles.toggle_pin",
+          targetType: "article",
+          targetId: input.id,
+          metadata: { isPinned: input.isPinned },
+        });
         return { success: true };
       }),
     toggleLock: modProcedure
       .input(z.object({ id: z.number(), isLocked: z.boolean() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         await db.toggleLockArticle(input.id, input.isLocked);
+        await logAdminAction(ctx, {
+          action: "articles.toggle_lock",
+          targetType: "article",
+          targetId: input.id,
+          metadata: { isLocked: input.isLocked },
+        });
         return { success: true };
       }),
     getUserDrafts: protectedProcedure.query(async ({ ctx }) => {
@@ -1030,6 +1219,14 @@ export const appRouter = router({
       }
 
       await db.deleteComment(input.id);
+      if (isDashboardAdmin || isStaff) {
+        await logAdminAction(ctx, {
+          action: "comments.delete",
+          targetType: "comment",
+          targetId: input.id,
+          metadata: { articleId: comment.articleId, authorId: comment.authorId },
+        });
+      }
       return { success: true };
     }),
   }),
@@ -1082,8 +1279,14 @@ export const appRouter = router({
     }),
     update: dashboardProcedure
       .input(z.object({ slug: z.string(), title: z.string(), content: z.string() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         await db.updatePage(input.slug, input.title, input.content);
+        await logAdminAction(ctx, {
+          action: "pages.update",
+          targetType: "page",
+          targetId: input.slug,
+          metadata: { title: input.title },
+        });
         return { success: true };
       }),
     list: dashboardProcedure.query(async () => {
@@ -1111,19 +1314,34 @@ export const appRouter = router({
     list: dashboardProcedure.query(async () => {
       return db.getContactMessages();
     }),
-    markRead: dashboardProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+    markRead: dashboardProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
       await db.markMessageRead(input.id);
+      await logAdminAction(ctx, {
+        action: "contact.mark_read",
+        targetType: "contact_message",
+        targetId: input.id,
+      });
       return { success: true };
     }),
-    delete: dashboardProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+    delete: dashboardProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
       await db.deleteContactMessage(input.id);
+      await logAdminAction(ctx, {
+        action: "contact.delete",
+        targetType: "contact_message",
+        targetId: input.id,
+      });
       return { success: true };
     }),
   }),
 
   resend: router({
-    sendHelloWorld: dashboardProcedure.mutation(async () => {
+    sendHelloWorld: dashboardProcedure.mutation(async ({ ctx }) => {
       const data = await sendResendHelloWorldEmail();
+      await logAdminAction(ctx, {
+        action: "resend.send_hello_world",
+        targetType: "email",
+        targetId: data?.id ?? null,
+      });
       return { success: true, id: data?.id ?? null };
     }),
   }),
@@ -1149,8 +1367,13 @@ export const appRouter = router({
           details: z.string().max(5000),
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const product = await updateShopProductCopy(input);
+        await logAdminAction(ctx, {
+          action: "shop.update_product_copy",
+          targetType: "shop_product",
+          targetId: input.productId,
+        });
         return { success: true, product };
       }),
     createCheckoutSession: publicProcedure
@@ -1217,7 +1440,7 @@ export const appRouter = router({
           description: z.string().max(3000),
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const profile = GLOBE_PROFILES.find((item) => item.id === input.profileId);
 
         if (!profile) {
@@ -1231,6 +1454,12 @@ export const appRouter = router({
         );
 
         const profiles = await listEditableGlobeProfiles();
+        await logAdminAction(ctx, {
+          action: "world.update_profile",
+          targetType: "world_profile",
+          targetId: input.profileId,
+          metadata: { displayName: input.displayName, officialName: input.officialName },
+        });
         return {
           success: true,
           profile: profiles.find((item) => item.id === input.profileId) ?? null,
@@ -1247,8 +1476,14 @@ export const appRouter = router({
     }),
     setConstructionMode: dashboardProcedure
       .input(z.object({ isUnderConstruction: z.boolean() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         await db.setSetting("isUnderConstruction", input.isUnderConstruction ? "true" : "false");
+        await logAdminAction(ctx, {
+          action: "settings.set_construction_mode",
+          targetType: "setting",
+          targetId: "isUnderConstruction",
+          metadata: { isUnderConstruction: input.isUnderConstruction },
+        });
         return { success: true };
       }),
     getFeaturedVideoUrl: publicProcedure.query(async () => {
@@ -1257,8 +1492,14 @@ export const appRouter = router({
     }),
     setFeaturedVideoUrl: dashboardProcedure
       .input(z.object({ url: z.string().url().includes("youtube").or(z.string().url().includes("youtu.be")).or(z.literal("")) }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         await db.setSetting("featuredVideoUrl", input.url);
+        await logAdminAction(ctx, {
+          action: "settings.set_featured_video_url",
+          targetType: "setting",
+          targetId: "featuredVideoUrl",
+          metadata: { url: input.url },
+        });
         return { success: true };
       }),
     getHomepagePopup: publicProcedure.query(async () => {
@@ -1279,12 +1520,18 @@ export const appRouter = router({
           message: z.string().max(2000, "Popup message must be 2,000 characters or fewer"),
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         await Promise.all([
           db.setSetting("homepagePopupEnabled", input.enabled ? "true" : "false"),
           db.setSetting("homepagePopupMessage", input.message),
         ]);
 
+        await logAdminAction(ctx, {
+          action: "settings.set_homepage_popup",
+          targetType: "setting",
+          targetId: "homepagePopup",
+          metadata: { enabled: input.enabled, messageLength: input.message.length },
+        });
         return { success: true };
       }),
   }),
@@ -1335,7 +1582,7 @@ export const appRouter = router({
     }),
     create: dashboardProcedure
       .input(z.object({ title: z.string().min(1), pdfFile: z.string(), filename: z.string() }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
         const buffer = Buffer.from(input.pdfFile, "base64");
 
         // Validate PDF magic bytes (%PDF-)
@@ -1361,10 +1608,20 @@ export const appRouter = router({
           throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `PDF upload failed: ${msg}` });
         }
         await db.createPdfResource(input.title, url);
+        await logAdminAction(ctx, {
+          action: "pdf_resources.create",
+          targetType: "pdf_resource",
+          metadata: { title: input.title, filename: input.filename, url },
+        });
         return { success: true };
       }),
-    delete: dashboardProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+    delete: dashboardProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
       await db.deletePdfResource(input.id);
+      await logAdminAction(ctx, {
+        action: "pdf_resources.delete",
+        targetType: "pdf_resource",
+        targetId: input.id,
+      });
       return { success: true };
     }),
   }),
