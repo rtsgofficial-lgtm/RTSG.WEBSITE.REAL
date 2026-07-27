@@ -12,11 +12,37 @@ export type LatestSubstackPost = {
 };
 
 const SUBSTACK_CACHE_TTL_MS = 30 * 60 * 1000;
+const SUBSTACK_ERROR_CACHE_TTL_MS = 5 * 60 * 1000;
+const DEFAULT_SUBSTACK_FEED_URL = "https://media.rtsg.org/feed";
 
 let substackCache: {
   expiresAt: number;
   data: LatestSubstackPost | null;
 } | null = null;
+
+function normalizeFeedUrl(value: string) {
+  const trimmed = value.trim() || DEFAULT_SUBSTACK_FEED_URL;
+  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+
+  try {
+    const url = new URL(withProtocol);
+    url.hostname = url.hostname.replace(/^www\./i, "");
+    return url.toString();
+  } catch {
+    return DEFAULT_SUBSTACK_FEED_URL;
+  }
+}
+
+function getFeedUrlCandidates() {
+  return Array.from(new Set([normalizeFeedUrl(ENV.substackFeedUrl), DEFAULT_SUBSTACK_FEED_URL]));
+}
+
+function getFetchFailureMessage(error: unknown) {
+  const cause = (error as { cause?: { code?: string; hostname?: string; message?: string } })?.cause;
+  const message = error instanceof Error ? error.message : String(error);
+  const hostDetail = cause?.hostname ? ` (${cause.hostname})` : "";
+  return cause?.code ? `${cause.code}${hostDetail}` : message;
+}
 
 function decodeText(value: string) {
   return value
@@ -112,21 +138,31 @@ function formatPublishedTime(publishedAt: string | null) {
 }
 
 async function fetchSubstackFeedXml() {
-  const response = await fetch(ENV.substackFeedUrl, {
-    headers: {
-      Accept: "application/rss+xml, application/xml;q=0.9, text/xml;q=0.8",
-      "User-Agent": "RTSGWebsite/1.0 (+https://rtsg.org)",
-    },
-  });
+  let lastError: unknown = null;
 
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    throw new Error(
-      `Substack feed request failed: ${response.status} ${response.statusText}${detail ? ` - ${detail.slice(0, 200)}` : ""}`
-    );
+  for (const feedUrl of getFeedUrlCandidates()) {
+    try {
+      const response = await fetch(feedUrl, {
+        headers: {
+          Accept: "application/rss+xml, application/xml;q=0.9, text/xml;q=0.8",
+          "User-Agent": "RTSGWebsite/1.0 (+https://rtsg.org)",
+        },
+      });
+
+      if (!response.ok) {
+        const detail = await response.text().catch(() => "");
+        throw new Error(
+          `Substack feed request failed: ${response.status} ${response.statusText}${detail ? ` - ${detail.slice(0, 200)}` : ""}`
+        );
+      }
+
+      return response.text();
+    } catch (error) {
+      lastError = error;
+    }
   }
 
-  return response.text();
+  throw new Error(`Substack feed unavailable at media.rtsg.org/feed: ${getFetchFailureMessage(lastError)}`);
 }
 
 function parseLatestPost(xml: string): LatestSubstackPost | null {
@@ -164,11 +200,17 @@ export async function getLatestSubstackPost() {
     return substackCache.data;
   }
 
-  const xml = await fetchSubstackFeedXml();
-  const latestPost = parseLatestPost(xml);
+  let latestPost: LatestSubstackPost | null = null;
+
+  try {
+    const xml = await fetchSubstackFeedXml();
+    latestPost = parseLatestPost(xml);
+  } catch (error) {
+    console.warn("[Substack] Latest post unavailable:", error instanceof Error ? error.message : error);
+  }
 
   substackCache = {
-    expiresAt: Date.now() + SUBSTACK_CACHE_TTL_MS,
+    expiresAt: Date.now() + (latestPost ? SUBSTACK_CACHE_TTL_MS : SUBSTACK_ERROR_CACHE_TTL_MS),
     data: latestPost,
   };
 

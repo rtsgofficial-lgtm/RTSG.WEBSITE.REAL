@@ -1567,12 +1567,7 @@ export const appRouter = router({
 
   substack: router({
     getLatestPost: publicProcedure.query(async () => {
-      try {
-        return await getLatestSubstackPost();
-      } catch (err) {
-        console.warn("[Substack] Failed to fetch latest post from RSS feed:", err);
-        return null;
-      }
+      return getLatestSubstackPost();
     }),
   }),
 

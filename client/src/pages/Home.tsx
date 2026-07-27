@@ -10,6 +10,7 @@ export default function Home() {
 
   const YOUTUBE_FALLBACK_IMAGE = "https://rs.rtsg.org/RTSG%20Black%20And%20White%20Grain%20ith%20colored%20logo.png";
   const LOWER_BACKGROUND_VIDEO = "https://rs.rtsg.org/subtle-white-abstract-fluid-motion-background-2026-01-28-05-08-21-utc.mov";
+  const SUBSTACK_URL = "https://media.rtsg.org";
   const DISCORD_INVITE_URL = "https://discord.gg/qhaW8GSCcA";
   const DISCORD_SHAPE_IMAGE = "https://rs.rtsg.org/24.png";
   const [scrollBlur, setScrollBlur] = useState(0);
@@ -216,7 +217,7 @@ export default function Home() {
         <section className="relative z-[2] py-20">
           <div className="container max-w-5xl mx-auto">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <a href="media.rtsg.org" target="_blank" rel="noopener noreferrer" aria-label="Open RTSG Substack">
+              <a href={SUBSTACK_URL} target="_blank" rel="noopener noreferrer" aria-label="Open RTSG Substack">
                 <div className="glass glass-hover rounded-2xl p-6 animate-fade-in cursor-pointer hover:bg-white/10 transition-colors">
                   <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center mb-4">
                     <Newspaper className="w-5 h-5 text-primary" />
@@ -274,7 +275,7 @@ export default function Home() {
                   </div>
                 </div>
                 <a
-                  href="media.rtsg.org"
+                  href={SUBSTACK_URL}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="glitch-hover flex shrink-0 items-center gap-1.5 text-xs text-primary hover:underline"
@@ -331,7 +332,7 @@ export default function Home() {
                 </a>
               ) : (
                 <a
-                  href="media.rtsg.org"
+                  href={SUBSTACK_URL}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="group flex flex-1 items-center justify-between gap-5 rounded-xl border border-white/10 bg-white/[0.03] p-5 transition-colors hover:bg-white/[0.06]"
