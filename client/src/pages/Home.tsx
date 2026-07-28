@@ -10,7 +10,7 @@ export default function Home() {
 
   const YOUTUBE_FALLBACK_IMAGE = "https://rs.rtsg.org/RTSG%20Black%20And%20White%20Grain%20ith%20colored%20logo.png";
   const LOWER_BACKGROUND_VIDEO = "https://rs.rtsg.org/subtle-white-abstract-fluid-motion-background-2026-01-28-05-08-21-utc.mov";
-  const SUBSTACK_URL = "https://media.rtsg.org";
+  const SUBSTACK_URL = "https://www.media.rtsg.org";
   const DISCORD_INVITE_URL = "https://discord.gg/qhaW8GSCcA";
   const DISCORD_SHAPE_IMAGE = "https://rs.rtsg.org/24.png";
   const [scrollBlur, setScrollBlur] = useState(0);

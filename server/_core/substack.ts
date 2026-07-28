@@ -13,7 +13,8 @@ export type LatestSubstackPost = {
 
 const SUBSTACK_CACHE_TTL_MS = 30 * 60 * 1000;
 const SUBSTACK_ERROR_CACHE_TTL_MS = 5 * 60 * 1000;
-const DEFAULT_SUBSTACK_FEED_URL = "https://media.rtsg.org/feed";
+const SUBSTACK_HOST = "www.media.rtsg.org";
+const DEFAULT_SUBSTACK_FEED_URL = `https://${SUBSTACK_HOST}/feed`;
 
 let substackCache: {
   expiresAt: number;
@@ -26,10 +27,26 @@ function normalizeFeedUrl(value: string) {
 
   try {
     const url = new URL(withProtocol);
-    url.hostname = url.hostname.replace(/^www\./i, "");
+    if (url.hostname.replace(/^www\./i, "") === "media.rtsg.org") {
+      url.hostname = SUBSTACK_HOST;
+    }
     return url.toString();
   } catch {
     return DEFAULT_SUBSTACK_FEED_URL;
+  }
+}
+
+function normalizeSubstackUrl(value: string | null) {
+  if (!value) return null;
+
+  try {
+    const url = new URL(value);
+    if (url.hostname.replace(/^www\./i, "") === "media.rtsg.org") {
+      url.hostname = SUBSTACK_HOST;
+    }
+    return url.toString();
+  } catch {
+    return value;
   }
 }
 
@@ -162,7 +179,7 @@ async function fetchSubstackFeedXml() {
     }
   }
 
-  throw new Error(`Substack feed unavailable at media.rtsg.org/feed: ${getFetchFailureMessage(lastError)}`);
+  throw new Error(`Substack feed unavailable at www.media.rtsg.org/feed: ${getFetchFailureMessage(lastError)}`);
 }
 
 function parseLatestPost(xml: string): LatestSubstackPost | null {
@@ -185,9 +202,9 @@ function parseLatestPost(xml: string): LatestSubstackPost | null {
 
   return {
     title,
-    url,
+    url: normalizeSubstackUrl(url) ?? url,
     excerpt: createExcerpt(description ?? content),
-    imageUrl: extractImage(itemXml, content, description),
+    imageUrl: normalizeSubstackUrl(extractImage(itemXml, content, description)),
     publishedAt,
     publishedTimeText: formatPublishedTime(publishedAt),
     author: getTagContent(itemXml, "dc:creator") ?? getTagContent(itemXml, "author"),

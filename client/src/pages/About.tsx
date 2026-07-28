@@ -27,7 +27,7 @@ const SOCIAL_LINKS = [
   {
     name: "Substack",
     label: "Substack",
-    href: "https://media.rtsg.org",
+    href: "https://www.media.rtsg.org",
     icon: Newspaper,
   },
 ];
