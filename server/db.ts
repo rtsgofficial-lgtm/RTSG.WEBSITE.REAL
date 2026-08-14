@@ -11,6 +11,7 @@ import {
   adminCredentials,
   adminActionLogs,
   articles,
+  newsArticles,
   comments,
   notifications,
   sitePages,
@@ -51,16 +52,42 @@ const coreUserSelect = {
 
 function isMissingProfileBioColumnError(error: unknown) {
   const message = String((error as { message?: unknown })?.message ?? error);
-  return message.includes("profileBio") && (message.includes("Unknown column") || message.includes("ER_BAD_FIELD_ERROR"));
+  return (
+    message.includes("profileBio") &&
+    (message.includes("Unknown column") ||
+      message.includes("ER_BAD_FIELD_ERROR"))
+  );
 }
 
 function isMissingAdminSecurityTableError(error: unknown) {
-  const message = String((error as { message?: unknown })?.message ?? error);
+  const parts: string[] = [];
+  let current: unknown = error;
+
+  while (current && typeof current === "object") {
+    const errorLike = current as {
+      message?: unknown;
+      code?: unknown;
+      sqlMessage?: unknown;
+      cause?: unknown;
+    };
+    parts.push(String(errorLike.message ?? ""));
+    parts.push(String(errorLike.code ?? ""));
+    parts.push(String(errorLike.sqlMessage ?? ""));
+    current = errorLike.cause;
+  }
+
+  if (parts.length === 0) {
+    parts.push(String(error));
+  }
+
+  const message = parts.join(" ");
   return (
-    (message.includes("admin_login_rate_limits") || message.includes("admin_action_logs")) &&
+    (message.includes("admin_login_rate_limits") ||
+      message.includes("admin_action_logs")) &&
     (message.includes("doesn't exist") ||
       message.includes("does not exist") ||
       message.includes("ER_NO_SUCH_TABLE") ||
+      message.includes("ER_BAD_TABLE_ERROR") ||
       message.includes("Table") ||
       message.includes("no such table"))
   );
@@ -116,7 +143,10 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       updateSet.lastSignedIn = new Date();
     }
 
-    await db.insert(users).values(values).onDuplicateKeyUpdate({ set: updateSet });
+    await db
+      .insert(users)
+      .values(values)
+      .onDuplicateKeyUpdate({ set: updateSet });
   } catch (error) {
     console.error("[Database] Failed to upsert user:", error);
     throw error;
@@ -128,10 +158,18 @@ export async function getUserByOpenId(openId: string) {
   if (!db) return undefined;
   let result;
   try {
-    result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
+    result = await db
+      .select()
+      .from(users)
+      .where(eq(users.openId, openId))
+      .limit(1);
   } catch (error) {
     if (!isMissingProfileBioColumnError(error)) throw error;
-    result = await db.select(coreUserSelect).from(users).where(eq(users.openId, openId)).limit(1);
+    result = await db
+      .select(coreUserSelect)
+      .from(users)
+      .where(eq(users.openId, openId))
+      .limit(1);
   }
   return result.length > 0 ? result[0] : undefined;
 }
@@ -144,7 +182,11 @@ export async function getUserById(userId: number) {
     result = await db.select().from(users).where(eq(users.id, userId)).limit(1);
   } catch (error) {
     if (!isMissingProfileBioColumnError(error)) throw error;
-    result = await db.select(coreUserSelect).from(users).where(eq(users.id, userId)).limit(1);
+    result = await db
+      .select(coreUserSelect)
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
   }
   return result.length > 0 ? result[0] : undefined;
 }
@@ -160,8 +202,13 @@ export async function getAllUsers() {
   }
 }
 
-export function getMentionHandle(user: { id: number; name: string | null; email?: string | null }) {
-  const base = user.name?.trim() || user.email?.split("@")[0] || `user-${user.id}`;
+export function getMentionHandle(user: {
+  id: number;
+  name: string | null;
+  email?: string | null;
+}) {
+  const base =
+    user.name?.trim() || user.email?.split("@")[0] || `user-${user.id}`;
   const handle = base
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
@@ -188,14 +235,14 @@ export async function searchMentionableUsers(query: string, limit = 8) {
     .limit(100);
 
   return allUsers
-    .map((user) => ({
+    .map(user => ({
       id: user.id,
       name: user.name || "Anonymous",
       avatarUrl: user.avatarUrl,
       role: user.role,
       handle: getMentionHandle(user),
     }))
-    .filter((user) => {
+    .filter(user => {
       if (!trimmedQuery) return true;
       return (
         user.handle.includes(trimmedQuery) ||
@@ -209,7 +256,9 @@ export async function findUsersByMentionHandles(handles: string[]) {
   const db = await getDb();
   if (!db || handles.length === 0) return [];
 
-  const normalizedHandles = new Set(handles.map((handle) => handle.toLowerCase()));
+  const normalizedHandles = new Set(
+    handles.map(handle => handle.toLowerCase())
+  );
   const allUsers = await db
     .select({
       id: users.id,
@@ -221,17 +270,20 @@ export async function findUsersByMentionHandles(handles: string[]) {
     .from(users);
 
   return allUsers
-    .map((user) => ({
+    .map(user => ({
       id: user.id,
       name: user.name || "Anonymous",
       avatarUrl: user.avatarUrl,
       role: user.role,
       handle: getMentionHandle(user),
     }))
-    .filter((user) => normalizedHandles.has(user.handle));
+    .filter(user => normalizedHandles.has(user.handle));
 }
 
-export async function updateUserRole(userId: number, role: "user" | "admin" | "moderator") {
+export async function updateUserRole(
+  userId: number,
+  role: "user" | "admin" | "moderator"
+) {
   const db = await getDb();
   if (!db) return;
   await db.update(users).set({ role }).where(eq(users.id, userId));
@@ -243,7 +295,10 @@ export async function updateUserAvatar(userId: number, avatarUrl: string) {
   await db.update(users).set({ avatarUrl }).where(eq(users.id, userId));
 }
 
-export async function updateUserDisplayName(userId: number, displayName: string) {
+export async function updateUserDisplayName(
+  userId: number,
+  displayName: string
+) {
   const db = await getDb();
   if (!db) return;
   await db.update(users).set({ name: displayName }).where(eq(users.id, userId));
@@ -259,7 +314,9 @@ export async function getPublicUserProfile(userId: number) {
   const db = await getDb();
   if (!db) return undefined;
 
-  const selectPublicProfile = (profileBio: typeof users.profileBio | ReturnType<typeof sql<string | null>>) =>
+  const selectPublicProfile = (
+    profileBio: typeof users.profileBio | ReturnType<typeof sql<string | null>>
+  ) =>
     db
       .select({
         id: users.id,
@@ -309,10 +366,7 @@ export async function getUserByEmail(email: string) {
   return result[0] ?? null;
 }
 
-export async function createLocalUser(input: {
-  name: string;
-  email: string;
-}) {
+export async function createLocalUser(input: { name: string; email: string }) {
   const database = await getDb();
   if (!database) {
     throw new Error("Database not available");
@@ -380,7 +434,10 @@ export async function createUserCredential(input: {
   });
 }
 
-export async function updateUserCredentialPassword(userId: number, passwordHash: string) {
+export async function updateUserCredentialPassword(
+  userId: number,
+  passwordHash: string
+) {
   const database = await getDb();
   if (!database) {
     throw new Error("Database not available");
@@ -405,7 +462,11 @@ export async function getLoginRateLimit(email: string) {
   return result[0] ?? null;
 }
 
-export async function recordFailedLoginAttempt(email: string, maxAttempts: number, lockoutMs: number) {
+export async function recordFailedLoginAttempt(
+  email: string,
+  maxAttempts: number,
+  lockoutMs: number
+) {
   const database = await getDb();
   if (!database) return null;
 
@@ -420,7 +481,9 @@ export async function recordFailedLoginAttempt(email: string, maxAttempts: numbe
 
   const nextFailedAttemptCount = (existing?.failedAttemptCount ?? 0) + 1;
   const lockedUntil =
-    nextFailedAttemptCount >= maxAttempts ? new Date(now.getTime() + lockoutMs) : null;
+    nextFailedAttemptCount >= maxAttempts
+      ? new Date(now.getTime() + lockoutMs)
+      : null;
 
   if (existing) {
     await database
@@ -469,7 +532,9 @@ export async function getAdminLoginRateLimit(username: string) {
     result = await database
       .select()
       .from(adminLoginRateLimits)
-      .where(eq(adminLoginRateLimits.username, normalizeAdminUsername(username)))
+      .where(
+        eq(adminLoginRateLimits.username, normalizeAdminUsername(username))
+      )
       .limit(1);
   } catch (error) {
     if (!isMissingAdminSecurityTableError(error)) throw error;
@@ -479,7 +544,11 @@ export async function getAdminLoginRateLimit(username: string) {
   return result[0] ?? null;
 }
 
-export async function recordFailedAdminLoginAttempt(username: string, maxAttempts: number, lockoutMs: number) {
+export async function recordFailedAdminLoginAttempt(
+  username: string,
+  maxAttempts: number,
+  lockoutMs: number
+) {
   const database = await getDb();
   if (!database) return null;
 
@@ -494,7 +563,9 @@ export async function recordFailedAdminLoginAttempt(username: string, maxAttempt
 
   const nextFailedAttemptCount = (existing?.failedAttemptCount ?? 0) + 1;
   const lockedUntil =
-    nextFailedAttemptCount >= maxAttempts ? new Date(now.getTime() + lockoutMs) : null;
+    nextFailedAttemptCount >= maxAttempts
+      ? new Date(now.getTime() + lockoutMs)
+      : null;
 
   try {
     if (existing) {
@@ -537,7 +608,9 @@ export async function clearAdminLoginFailures(username: string) {
     await database
       .update(adminLoginRateLimits)
       .set({ failedAttemptCount: 0, lockedUntil: null, lastFailedAt: null })
-      .where(eq(adminLoginRateLimits.username, normalizeAdminUsername(username)));
+      .where(
+        eq(adminLoginRateLimits.username, normalizeAdminUsername(username))
+      );
   } catch (error) {
     if (!isMissingAdminSecurityTableError(error)) throw error;
   }
@@ -651,21 +724,34 @@ export async function getAdminCredentialByUsername(username: string) {
   const result = await db
     .select()
     .from(adminCredentials)
-    .where(or(eq(adminCredentials.username, username), eq(adminCredentials.username, normalizedUsername)))
+    .where(
+      or(
+        eq(adminCredentials.username, username),
+        eq(adminCredentials.username, normalizedUsername)
+      )
+    )
     .limit(1);
   return result.length > 0 ? result[0] : undefined;
 }
 
-export async function createAdminCredential(username: string, passwordHash: string) {
+export async function createAdminCredential(
+  username: string,
+  passwordHash: string
+) {
   const db = await getDb();
   if (!db) return;
-  await db.insert(adminCredentials).values({ username: normalizeAdminUsername(username), passwordHash });
+  await db
+    .insert(adminCredentials)
+    .values({ username: normalizeAdminUsername(username), passwordHash });
 }
 
 export async function adminCredentialExists() {
   const db = await getDb();
   if (!db) return false;
-  const result = await db.select({ id: adminCredentials.id }).from(adminCredentials).limit(1);
+  const result = await db
+    .select({ id: adminCredentials.id })
+    .from(adminCredentials)
+    .limit(1);
   return result.length > 0;
 }
 
@@ -692,7 +778,10 @@ export async function createAdminActionLog(input: {
       actorRole: input.actorRole ?? null,
       action: input.action,
       targetType: input.targetType ?? null,
-      targetId: input.targetId === undefined || input.targetId === null ? null : String(input.targetId),
+      targetId:
+        input.targetId === undefined || input.targetId === null
+          ? null
+          : String(input.targetId),
       metadata: input.metadata ? JSON.stringify(input.metadata) : null,
       ipAddress: input.ipAddress ?? null,
       userAgent: input.userAgent?.slice(0, 512) ?? null,
@@ -720,35 +809,44 @@ export async function getAdminActionLogs(limit = 100) {
 
 // ─── Articles ──────────────────────────────────────────────────────────────
 
-export async function getArticles(limit = 50, offset = 0, searchQuery?: string, sortBy: 'newest' | 'oldest' | 'mostViewed' = 'newest') {
+export async function getArticles(
+  limit = 50,
+  offset = 0,
+  searchQuery?: string,
+  sortBy: "newest" | "oldest" | "mostViewed" = "newest"
+) {
   const db = await getDb();
   if (!db) return [];
-  
+
   // Build where conditions
-  let whereClause: any = eq(articles.isPublished, true);
+  const whereConditions = [eq(articles.isPublished, true)];
   if (searchQuery && searchQuery.trim()) {
     const searchTerm = `%${searchQuery.trim()}%`;
-    whereClause = and(
-      eq(articles.isPublished, true),
-      or(
-        like(articles.title, searchTerm),
-        like(articles.content, searchTerm),
-        like(articles.excerpt, searchTerm)
-      )
+    const searchCondition = or(
+      like(articles.title, searchTerm),
+      like(articles.content, searchTerm),
+      like(articles.excerpt, searchTerm)
     );
+    if (searchCondition) whereConditions.push(searchCondition);
   }
-  
+
+  const whereClause = and(...whereConditions);
+
   // Determine sort order
   let orderByClause;
-  if (sortBy === 'oldest') {
+  if (sortBy === "oldest") {
     orderByClause = [desc(articles.isPinned), asc(articles.createdAt)];
-  } else if (sortBy === 'mostViewed') {
-    orderByClause = [desc(articles.isPinned), desc(articles.viewCount), desc(articles.createdAt)];
+  } else if (sortBy === "mostViewed") {
+    orderByClause = [
+      desc(articles.isPinned),
+      desc(articles.viewCount),
+      desc(articles.createdAt),
+    ];
   } else {
     // Default: newest
     orderByClause = [desc(articles.isPinned), desc(articles.createdAt)];
   }
-  
+
   return db
     .select({
       id: articles.id,
@@ -812,7 +910,9 @@ export async function createArticle(
 ) {
   const db = await getDb();
   if (!db) return undefined;
-  const result = await db.insert(articles).values({ title, content, excerpt, coverImageUrl, authorId });
+  const result = await db
+    .insert(articles)
+    .values({ title, content, excerpt, coverImageUrl, authorId });
   return result[0].insertId;
 }
 
@@ -851,7 +951,9 @@ export async function countArticlesByAuthor(authorId: number): Promise<number> {
   return Number(result[0]?.count ?? 0);
 }
 
-export async function deleteArticlesByAuthor(authorId: number): Promise<number> {
+export async function deleteArticlesByAuthor(
+  authorId: number
+): Promise<number> {
   const db = await getDb();
   if (!db) return 0;
 
@@ -860,13 +962,15 @@ export async function deleteArticlesByAuthor(authorId: number): Promise<number> 
     .from(articles)
     .where(eq(articles.authorId, authorId));
 
-  const articleIds = userArticles.map((article) => article.id);
+  const articleIds = userArticles.map(article => article.id);
 
   if (articleIds.length === 0) {
     return 0;
   }
 
-  await db.delete(notifications).where(inArray(notifications.articleId, articleIds));
+  await db
+    .delete(notifications)
+    .where(inArray(notifications.articleId, articleIds));
   await db.delete(comments).where(inArray(comments.articleId, articleIds));
   await db.delete(articles).where(inArray(articles.id, articleIds));
 
@@ -892,6 +996,263 @@ export async function incrementArticleViewCount(articleId: number) {
     .update(articles)
     .set({ viewCount: sql`${articles.viewCount} + 1` })
     .where(eq(articles.id, articleId));
+}
+
+function parseNewsTags(value: string | null | undefined): string[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) {
+      return parsed.filter(
+        (tag): tag is string => typeof tag === "string" && tag.trim().length > 0
+      );
+    }
+  } catch {
+    // Older rows may have comma-separated tags.
+  }
+  return value
+    .split(",")
+    .map(tag => tag.trim())
+    .filter(Boolean);
+}
+
+function serializeNewsTags(tags: string[] | null | undefined): string | null {
+  const normalized = Array.from(
+    new Set(
+      (tags ?? [])
+        .map(tag => tag.trim())
+        .filter(Boolean)
+        .map(tag => tag.slice(0, 48))
+    )
+  ).slice(0, 12);
+
+  return normalized.length > 0 ? JSON.stringify(normalized) : null;
+}
+
+function hydrateNewsArticle<
+  T extends {
+    tags?: string | null;
+    isPublished?: boolean;
+    status?: "draft" | "published";
+  },
+>(article: T) {
+  return {
+    ...article,
+    tags: parseNewsTags(article.tags),
+    status: article.status ?? (article.isPublished ? "published" : "draft"),
+  };
+}
+
+export async function getNewsArticles(
+  input: {
+    limit?: number;
+    offset?: number;
+    searchQuery?: string;
+    category?: string;
+    includeUnpublished?: boolean;
+  } = {}
+) {
+  const db = await getDb();
+  if (!db) return [];
+
+  const whereConditions = [];
+  if (!input.includeUnpublished) {
+    const publishedCondition = and(
+      eq(newsArticles.isPublished, true),
+      eq(newsArticles.status, "published")
+    );
+    if (publishedCondition) whereConditions.push(publishedCondition);
+  }
+  if (input.category?.trim()) {
+    whereConditions.push(eq(newsArticles.category, input.category.trim()));
+  }
+  if (input.searchQuery?.trim()) {
+    const searchTerm = `%${input.searchQuery.trim()}%`;
+    const searchCondition = or(
+      like(newsArticles.title, searchTerm),
+      like(newsArticles.subtitle, searchTerm),
+      like(newsArticles.content, searchTerm),
+      like(newsArticles.excerpt, searchTerm),
+      like(newsArticles.attributions, searchTerm),
+      like(newsArticles.authorName, searchTerm),
+      like(newsArticles.tags, searchTerm)
+    );
+    if (searchCondition) whereConditions.push(searchCondition);
+  }
+
+  const whereClause =
+    whereConditions.length > 0 ? and(...whereConditions) : undefined;
+
+  const query = db
+    .select({
+      id: newsArticles.id,
+      title: newsArticles.title,
+      subtitle: newsArticles.subtitle,
+      content: newsArticles.content,
+      excerpt: newsArticles.excerpt,
+      coverImageUrl: newsArticles.coverImageUrl,
+      attributions: newsArticles.attributions,
+      category: newsArticles.category,
+      tags: newsArticles.tags,
+      status: newsArticles.status,
+      authorId: newsArticles.authorId,
+      authorName: newsArticles.authorName,
+      authorXUrl: newsArticles.authorXUrl,
+      isFeatured: newsArticles.isFeatured,
+      isPublished: newsArticles.isPublished,
+      viewCount: newsArticles.viewCount,
+      createdAt: newsArticles.createdAt,
+      updatedAt: newsArticles.updatedAt,
+      editedAt: newsArticles.editedAt,
+    })
+    .from(newsArticles)
+    .$dynamic();
+
+  if (whereClause) query.where(whereClause);
+
+  const result = await query
+    .orderBy(desc(newsArticles.isFeatured), desc(newsArticles.createdAt))
+    .limit(input.limit ?? 50)
+    .offset(input.offset ?? 0);
+
+  return result.map(hydrateNewsArticle);
+}
+
+export async function getFeaturedNewsArticle() {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  const result = await db
+    .select()
+    .from(newsArticles)
+    .where(
+      and(
+        eq(newsArticles.isFeatured, true),
+        eq(newsArticles.isPublished, true),
+        eq(newsArticles.status, "published")
+      )
+    )
+    .orderBy(desc(newsArticles.createdAt))
+    .limit(1);
+
+  return result[0] ? hydrateNewsArticle(result[0]) : undefined;
+}
+
+export async function getNewsArticleById(
+  articleId: number,
+  includeUnpublished = false
+) {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  const conditions = [eq(newsArticles.id, articleId)];
+  if (!includeUnpublished) {
+    const publishedCondition = and(
+      eq(newsArticles.isPublished, true),
+      eq(newsArticles.status, "published")
+    );
+    if (publishedCondition) conditions.push(publishedCondition);
+  }
+
+  const result = await db
+    .select()
+    .from(newsArticles)
+    .where(and(...conditions))
+    .limit(1);
+
+  return result[0] ? hydrateNewsArticle(result[0]) : undefined;
+}
+
+export async function createNewsArticle(input: {
+  title: string;
+  subtitle: string | null;
+  content: string;
+  excerpt: string | null;
+  coverImageUrl: string | null;
+  attributions: string | null;
+  category: string;
+  tags: string[];
+  status: "draft" | "published";
+  authorId: number | null;
+  authorName: string;
+  authorXUrl: string | null;
+  isPublished: boolean;
+}) {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  const result = await db.insert(newsArticles).values({
+    ...input,
+    tags: serializeNewsTags(input.tags),
+    isPublished: input.status === "published" && input.isPublished,
+  });
+  return result[0].insertId;
+}
+
+export async function updateNewsArticle(
+  articleId: number,
+  input: {
+    title: string;
+    subtitle: string | null;
+    content: string;
+    excerpt: string | null;
+    coverImageUrl: string | null;
+    attributions: string | null;
+    category: string;
+    tags: string[];
+    status: "draft" | "published";
+    authorName: string;
+    authorXUrl: string | null;
+    isPublished: boolean;
+  }
+) {
+  const db = await getDb();
+  if (!db) return;
+
+  await db
+    .update(newsArticles)
+    .set({
+      ...input,
+      tags: serializeNewsTags(input.tags),
+      isPublished: input.status === "published" && input.isPublished,
+      editedAt: new Date(),
+    })
+    .where(eq(newsArticles.id, articleId));
+}
+
+export async function publishNewsArticle(articleId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(newsArticles)
+    .set({ status: "published", isPublished: true, editedAt: new Date() })
+    .where(eq(newsArticles.id, articleId));
+}
+
+export async function deleteNewsArticle(articleId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(newsArticles).where(eq(newsArticles.id, articleId));
+}
+
+export async function setFeaturedNewsArticle(articleId: number) {
+  const db = await getDb();
+  if (!db) return;
+
+  await db.update(newsArticles).set({ isFeatured: false });
+  await db
+    .update(newsArticles)
+    .set({ isFeatured: true })
+    .where(eq(newsArticles.id, articleId));
+}
+
+export async function incrementNewsArticleViewCount(articleId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(newsArticles)
+    .set({ viewCount: sql`${newsArticles.viewCount} + 1` })
+    .where(eq(newsArticles.id, articleId));
 }
 
 export async function getArticlesByAuthor(authorId: number) {
@@ -936,10 +1297,16 @@ export async function getCommentsByArticle(articleId: number) {
     .orderBy(desc(comments.createdAt));
 }
 
-export async function createComment(content: string, articleId: number, authorId: number) {
+export async function createComment(
+  content: string,
+  articleId: number,
+  authorId: number
+) {
   const db = await getDb();
   if (!db) return undefined;
-  const result = await db.insert(comments).values({ content, articleId, authorId });
+  const result = await db
+    .insert(comments)
+    .values({ content, articleId, authorId });
   return result[0].insertId;
 }
 
@@ -970,7 +1337,9 @@ export async function deleteComment(commentId: number) {
   await db.delete(comments).where(eq(comments.id, commentId));
 }
 
-export async function deleteCommentsByAuthor(authorId: number): Promise<number> {
+export async function deleteCommentsByAuthor(
+  authorId: number
+): Promise<number> {
   const db = await getDb();
   if (!db) return 0;
 
@@ -979,13 +1348,15 @@ export async function deleteCommentsByAuthor(authorId: number): Promise<number> 
     .from(comments)
     .where(eq(comments.authorId, authorId));
 
-  const commentIds = userComments.map((comment) => comment.id);
+  const commentIds = userComments.map(comment => comment.id);
 
   if (commentIds.length === 0) {
     return 0;
   }
 
-  await db.delete(notifications).where(inArray(notifications.commentId, commentIds));
+  await db
+    .delete(notifications)
+    .where(inArray(notifications.commentId, commentIds));
   await db.delete(comments).where(inArray(comments.id, commentIds));
 
   return commentIds.length;
@@ -1043,19 +1414,29 @@ export async function getUnreadNotificationCount(userId: number) {
   const result = await db
     .select({ count: sql<number>`COUNT(*)` })
     .from(notifications)
-    .where(and(eq(notifications.userId, userId), eq(notifications.isRead, false)));
+    .where(
+      and(eq(notifications.userId, userId), eq(notifications.isRead, false))
+    );
 
   return Number(result[0]?.count ?? 0);
 }
 
-export async function markNotificationRead(userId: number, notificationId: number) {
+export async function markNotificationRead(
+  userId: number,
+  notificationId: number
+) {
   const db = await getDb();
   if (!db) return;
 
   await db
     .update(notifications)
     .set({ isRead: true })
-    .where(and(eq(notifications.id, notificationId), eq(notifications.userId, userId)));
+    .where(
+      and(
+        eq(notifications.id, notificationId),
+        eq(notifications.userId, userId)
+      )
+    );
 }
 
 export async function markAllNotificationsRead(userId: number) {
@@ -1065,7 +1446,9 @@ export async function markAllNotificationsRead(userId: number) {
   await db
     .update(notifications)
     .set({ isRead: true })
-    .where(and(eq(notifications.userId, userId), eq(notifications.isRead, false)));
+    .where(
+      and(eq(notifications.userId, userId), eq(notifications.isRead, false))
+    );
 }
 
 // ─── Site Pages ─────────────────────────────────────────────────────────────
@@ -1073,14 +1456,21 @@ export async function markAllNotificationsRead(userId: number) {
 export async function getPageBySlug(slug: string) {
   const db = await getDb();
   if (!db) return undefined;
-  const result = await db.select().from(sitePages).where(eq(sitePages.slug, slug)).limit(1);
+  const result = await db
+    .select()
+    .from(sitePages)
+    .where(eq(sitePages.slug, slug))
+    .limit(1);
   return result.length > 0 ? result[0] : undefined;
 }
 
 export async function updatePage(slug: string, title: string, content: string) {
   const db = await getDb();
   if (!db) return;
-  await db.update(sitePages).set({ title, content }).where(eq(sitePages.slug, slug));
+  await db
+    .update(sitePages)
+    .set({ title, content })
+    .where(eq(sitePages.slug, slug));
 }
 
 export async function getAllPages() {
@@ -1091,7 +1481,12 @@ export async function getAllPages() {
 
 // ─── Contact Messages ───────────────────────────────────────────────────────
 
-export async function createContactMessage(name: string, email: string, subject: string, message: string) {
+export async function createContactMessage(
+  name: string,
+  email: string,
+  subject: string,
+  message: string
+) {
   const db = await getDb();
   if (!db) return;
   await db.insert(contactMessages).values({ name, email, subject, message });
@@ -1100,13 +1495,19 @@ export async function createContactMessage(name: string, email: string, subject:
 export async function getContactMessages() {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(contactMessages).orderBy(desc(contactMessages.createdAt));
+  return db
+    .select()
+    .from(contactMessages)
+    .orderBy(desc(contactMessages.createdAt));
 }
 
 export async function markMessageRead(id: number) {
   const db = await getDb();
   if (!db) return;
-  await db.update(contactMessages).set({ isRead: true }).where(eq(contactMessages.id, id));
+  await db
+    .update(contactMessages)
+    .set({ isRead: true })
+    .where(eq(contactMessages.id, id));
 }
 
 export async function deleteContactMessage(id: number) {
@@ -1120,14 +1521,21 @@ export async function deleteContactMessage(id: number) {
 export async function getSetting(key: string): Promise<string | undefined> {
   const db = await getDb();
   if (!db) return undefined;
-  const result = await db.select().from(siteSettings).where(eq(siteSettings.key, key)).limit(1);
+  const result = await db
+    .select()
+    .from(siteSettings)
+    .where(eq(siteSettings.key, key))
+    .limit(1);
   return result.length > 0 ? result[0].value : undefined;
 }
 
 export async function setSetting(key: string, value: string) {
   const db = await getDb();
   if (!db) return;
-  await db.insert(siteSettings).values({ key, value }).onDuplicateKeyUpdate({ set: { value } });
+  await db
+    .insert(siteSettings)
+    .values({ key, value })
+    .onDuplicateKeyUpdate({ set: { value } });
 }
 
 export async function isUnderConstruction(): Promise<boolean> {
@@ -1172,10 +1580,13 @@ export async function unmuteUser(userId: number) {
 export async function isUserMuted(userId: number): Promise<boolean> {
   const db = await getDb();
   if (!db) return false;
-  const result = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+  const result = await db
+    .select()
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
   return result.length > 0 ? result[0].isMuted : false;
 }
-
 
 // ─── Article Drafts ─────────────────────────────────────────────────────────
 
@@ -1198,14 +1609,76 @@ export async function getUserDrafts(userId: number) {
     .orderBy(desc(articles.updatedAt));
 }
 
+export async function getUnifiedUserDrafts(
+  userId: number,
+  includeNewsDrafts = false
+) {
+  const communityDrafts = (await getUserDrafts(userId)).map(draft => ({
+    ...draft,
+    type: "article" as const,
+    label: "Article Draft",
+    category: null as string | null,
+    subtitle: null as string | null,
+    tags: [] as string[],
+  }));
+
+  if (!includeNewsDrafts) {
+    return communityDrafts;
+  }
+
+  const db = await getDb();
+  if (!db) return communityDrafts;
+
+  const newsDrafts = await db
+    .select({
+      id: newsArticles.id,
+      title: newsArticles.title,
+      subtitle: newsArticles.subtitle,
+      excerpt: newsArticles.excerpt,
+      coverImageUrl: newsArticles.coverImageUrl,
+      attributions: newsArticles.attributions,
+      authorId: newsArticles.authorId,
+      authorName: newsArticles.authorName,
+      authorXUrl: newsArticles.authorXUrl,
+      category: newsArticles.category,
+      tags: newsArticles.tags,
+      createdAt: newsArticles.createdAt,
+      updatedAt: newsArticles.updatedAt,
+      isPublished: newsArticles.isPublished,
+    })
+    .from(newsArticles)
+    .where(
+      and(eq(newsArticles.authorId, userId), eq(newsArticles.status, "draft"))
+    )
+    .orderBy(desc(newsArticles.updatedAt));
+
+  return [
+    ...communityDrafts,
+    ...newsDrafts.map(draft => ({
+      ...draft,
+      type: "news" as const,
+      label: "News Draft",
+      tags: parseNewsTags(draft.tags),
+    })),
+  ].sort(
+    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+  );
+}
+
 export async function publishArticle(articleId: number) {
   const db = await getDb();
   if (!db) return;
-  await db.update(articles).set({ isPublished: true }).where(eq(articles.id, articleId));
+  await db
+    .update(articles)
+    .set({ isPublished: true })
+    .where(eq(articles.id, articleId));
 }
 
 export async function incrementViewCount(articleId: number) {
   const db = await getDb();
   if (!db) return;
-  await db.update(articles).set({ viewCount: sql`viewCount + 1` }).where(eq(articles.id, articleId));
+  await db
+    .update(articles)
+    .set({ viewCount: sql`viewCount + 1` })
+    .where(eq(articles.id, articleId));
 }

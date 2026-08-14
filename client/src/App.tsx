@@ -31,6 +31,9 @@ import UnderConstruction from "./pages/UnderConstruction";
 import Login from "./pages/Login";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
+import News, { NewsCategoryPage, NewsSearchPage } from "./pages/News";
+import NewsArticleDetail from "./pages/NewsArticleDetail";
+import NewsArticlePreview from "./pages/NewsArticlePreview";
 
 const Globe = lazy(() => import("./pages/Globe"));
 
@@ -46,6 +49,11 @@ function AdminRouter() {
   return (
     <Switch>
       <Route path="/" component={Home} />
+      <Route path="/news" component={News} />
+      <Route path="/news/search" component={NewsSearchPage} />
+      <Route path="/news/preview" component={NewsArticlePreview} />
+      <Route path="/news/articles/:id" component={NewsArticleDetail} />
+      <Route path="/news/:categorySlug" component={NewsCategoryPage} />
       <Route path="/login" component={Login} />
       <Route path="/forgot-password" component={ForgotPassword} />
       <Route path="/reset-password" component={ResetPassword} />
@@ -77,6 +85,11 @@ function PublicRouter() {
   return (
     <Switch>
       <Route path="/" component={Home} />
+      <Route path="/news" component={News} />
+      <Route path="/news/search" component={NewsSearchPage} />
+      <Route path="/news/preview" component={NewsArticlePreview} />
+      <Route path="/news/articles/:id" component={NewsArticleDetail} />
+      <Route path="/news/:categorySlug" component={NewsCategoryPage} />
       <Route path="/login" component={Login} />
       <Route path="/forgot-password" component={ForgotPassword} />
       <Route path="/reset-password" component={ResetPassword} />
@@ -107,6 +120,11 @@ function PublicRouter() {
 function ConstructionRouter() {
   return (
     <Switch>
+      <Route path="/news" component={News} />
+      <Route path="/news/search" component={NewsSearchPage} />
+      <Route path="/news/preview" component={NewsArticlePreview} />
+      <Route path="/news/articles/:id" component={NewsArticleDetail} />
+      <Route path="/news/:categorySlug" component={NewsCategoryPage} />
       <Route path="/login" component={Login} />
       <Route path="/forgot-password" component={ForgotPassword} />
       <Route path="/reset-password" component={ResetPassword} />
@@ -124,12 +142,38 @@ function ConstructionRouter() {
   );
 }
 
+function NewsSubdomainRouter() {
+  return (
+    <Switch>
+      <Route path="/" component={News} />
+      <Route path="/search" component={NewsSearchPage} />
+      <Route path="/preview" component={NewsArticlePreview} />
+      <Route path="/articles/:id" component={NewsArticleDetail} />
+      <Route path="/login" component={Login} />
+      <Route path="/forgot-password" component={ForgotPassword} />
+      <Route path="/reset-password" component={ResetPassword} />
+      <Route path="/profile" component={Profile} />
+      <Route path="/users/:id" component={UserProfile} />
+      <Route path="/admin" component={AdminLogin} />
+      <Route path="/admin/dashboard" component={AdminDashboard} />
+      <Route path="/:categorySlug" component={NewsCategoryPage} />
+      <Route component={NotFound} />
+    </Switch>
+  );
+}
+
+function isNewsSubdomain() {
+  if (typeof window === "undefined") return false;
+  return window.location.hostname === "news.rtsg.org";
+}
+
 function AppRouter() {
   const { user, loading: authLoading } = useAuth();
   const isAdmin = user?.role === "admin";
-  
+
   // Check construction mode from database
-  const { data: settingsData, isLoading: settingsLoading } = trpc.settings.getConstructionMode.useQuery();
+  const { data: settingsData, isLoading: settingsLoading } =
+    trpc.settings.getConstructionMode.useQuery();
   const isUnderConstruction = settingsData?.isUnderConstruction ?? true;
 
   const loading = authLoading || settingsLoading;
@@ -140,6 +184,10 @@ function AppRouter() {
         <div className="w-8 h-8 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
       </div>
     );
+  }
+
+  if (isNewsSubdomain()) {
+    return <NewsSubdomainRouter />;
   }
 
   // If under construction and not admin, show construction page
@@ -165,8 +213,7 @@ function SiteWidePopup() {
 
   const message = popup?.message?.trim() || "";
 
-  const shouldShowPopup =
-    Boolean(popup?.enabled && message) && !dismissed;
+  const shouldShowPopup = Boolean(popup?.enabled && message) && !dismissed;
 
   if (!shouldShowPopup) return null;
 

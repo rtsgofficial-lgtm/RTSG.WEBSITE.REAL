@@ -1,4 +1,12 @@
-import { boolean, int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import {
+  boolean,
+  int,
+  mysqlEnum,
+  mysqlTable,
+  text,
+  timestamp,
+  varchar,
+} from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -9,14 +17,16 @@ export const users = mysqlTable("users", {
   name: text("name"),
   email: varchar("email", { length: 320 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
-  role: mysqlEnum("role", ["user", "admin", "moderator"]).default("user").notNull(),
+  role: mysqlEnum("role", ["user", "admin", "moderator"])
+    .default("user")
+    .notNull(),
   avatarUrl: varchar("avatarUrl", { length: 512 }),
   profileBio: text("profileBio"),
   isMuted: boolean("isMuted").default(false).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
-}); 
+});
 
 export const userCredentials = mysqlTable("user_credentials", {
   id: int("id").autoincrement().primaryKey(),
@@ -58,19 +68,23 @@ export const adminLoginRateLimits = mysqlTable("admin_login_rate_limits", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
-export const passwordResetRateLimits = mysqlTable("password_reset_rate_limits", {
-  id: int("id").autoincrement().primaryKey(),
-  email: varchar("email", { length: 320 }).notNull().unique(),
-  requestCount: int("requestCount").default(0).notNull(),
-  windowStartedAt: timestamp("windowStartedAt").notNull(),
-  lastRequestedAt: timestamp("lastRequestedAt"),
-  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+export const passwordResetRateLimits = mysqlTable(
+  "password_reset_rate_limits",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    email: varchar("email", { length: 320 }).notNull().unique(),
+    requestCount: int("requestCount").default(0).notNull(),
+    windowStartedAt: timestamp("windowStartedAt").notNull(),
+    lastRequestedAt: timestamp("lastRequestedAt"),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  }
+);
 
 export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
 export type LoginRateLimit = typeof loginRateLimits.$inferSelect;
 export type AdminLoginRateLimit = typeof adminLoginRateLimits.$inferSelect;
-export type PasswordResetRateLimit = typeof passwordResetRateLimits.$inferSelect;
+export type PasswordResetRateLimit =
+  typeof passwordResetRateLimits.$inferSelect;
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
@@ -117,6 +131,30 @@ export const articles = mysqlTable("articles", {
   isPinned: boolean("isPinned").default(false).notNull(),
   isLocked: boolean("isLocked").default(false).notNull(),
   isPublished: boolean("isPublished").default(false).notNull(),
+  viewCount: int("viewCount").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  editedAt: timestamp("editedAt"),
+});
+
+export const newsArticles = mysqlTable("news_articles", {
+  id: int("id").autoincrement().primaryKey(),
+  title: varchar("title", { length: 256 }).notNull(),
+  subtitle: varchar("subtitle", { length: 512 }),
+  content: text("content").notNull(),
+  excerpt: varchar("excerpt", { length: 512 }),
+  coverImageUrl: varchar("coverImageUrl", { length: 512 }),
+  attributions: text("attributions"),
+  category: varchar("category", { length: 64 }).default("Editorials").notNull(),
+  tags: text("tags"),
+  status: mysqlEnum("status", ["draft", "published"])
+    .default("published")
+    .notNull(),
+  authorId: int("authorId"),
+  authorName: varchar("authorName", { length: 128 }).default("RTSG").notNull(),
+  authorXUrl: varchar("authorXUrl", { length: 512 }),
+  isFeatured: boolean("isFeatured").default(false).notNull(),
+  isPublished: boolean("isPublished").default(true).notNull(),
   viewCount: int("viewCount").default(0).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

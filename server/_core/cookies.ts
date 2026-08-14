@@ -10,15 +10,21 @@ function isSecureRequest(req: Request) {
     ? forwardedProto
     : forwardedProto.split(",");
 
-  return protoList.some((proto) => proto.trim().toLowerCase() === "https");
+  return protoList.some(proto => proto.trim().toLowerCase() === "https");
 }
 
 export function getSessionCookieOptions(
   req: Request
-): Pick<CookieOptions, "httpOnly" | "path" | "sameSite" | "secure"> {
+): Pick<CookieOptions, "httpOnly" | "path" | "sameSite" | "secure" | "domain"> {
   const secure = isSecureRequest(req);
+  const hostname = req.hostname.toLowerCase();
+  const domain =
+    hostname === "rtsg.org" || hostname.endsWith(".rtsg.org")
+      ? ".rtsg.org"
+      : undefined;
 
   return {
+    domain,
     httpOnly: true,
     path: "/",
     sameSite: "lax",

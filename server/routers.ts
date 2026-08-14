@@ -4,9 +4,15 @@ import {
   GLOBE_PROFILES,
   type EditableGlobeProfileField,
 } from "@shared/globeProfiles";
+import { NEWS_CATEGORIES, normalizeNewsCategory } from "@shared/newsCategories";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, protectedProcedure, adminProcedure, router } from "./_core/trpc";
+import {
+  publicProcedure,
+  protectedProcedure,
+  adminProcedure,
+  router,
+} from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import * as db from "./db";
@@ -46,29 +52,40 @@ const PASSWORD_RESET_MAX_REQUESTS = 3;
 const PASSWORD_RESET_WINDOW_MS = 30 * 60 * 1000;
 const PASSWORD_RESET_RESPONSE =
   "If an account exists for that email, a reset link will be sent shortly.";
+const newsCategorySchema = z.enum(NEWS_CATEGORIES);
+const newsStatusSchema = z.enum(["draft", "published"]);
+const newsTagsSchema = z
+  .array(z.string().trim().min(1).max(48))
+  .max(12)
+  .optional()
+  .default([]);
 
-function getWorldProfileSettingKey(profileId: string, field: EditableGlobeProfileField) {
+function getWorldProfileSettingKey(
+  profileId: string,
+  field: EditableGlobeProfileField
+) {
   return `worldProfile:${profileId}:${field}`;
 }
 
 async function listEditableGlobeProfiles() {
   return Promise.all(
-    GLOBE_PROFILES.map(async (profile) => {
+    GLOBE_PROFILES.map(async profile => {
       const entries = await Promise.all(
-        EDITABLE_GLOBE_PROFILE_FIELDS.map(async (field) => {
-          const value = await db.getSetting(getWorldProfileSettingKey(profile.id, field));
+        EDITABLE_GLOBE_PROFILE_FIELDS.map(async field => {
+          const value = await db.getSetting(
+            getWorldProfileSettingKey(profile.id, field)
+          );
           return [field, value] as const;
         })
       );
-      const overrides = entries.reduce<Partial<Record<EditableGlobeProfileField, string>>>(
-        (nextOverrides, [field, value]) => {
-          if (value !== undefined) {
-            nextOverrides[field] = value;
-          }
-          return nextOverrides;
-        },
-        {}
-      );
+      const overrides = entries.reduce<
+        Partial<Record<EditableGlobeProfileField, string>>
+      >((nextOverrides, [field, value]) => {
+        if (value !== undefined) {
+          nextOverrides[field] = value;
+        }
+        return nextOverrides;
+      }, {});
 
       return {
         ...profile,
@@ -84,17 +101,27 @@ type SpamTracker = { articleTimes: number[]; commentTimes: number[] };
 const postSpamTrackers = new Map<number, SpamTracker>();
 
 function trimRecent(timestamps: number[], now: number, windowMs: number) {
-  return timestamps.filter((timestamp) => now - timestamp <= windowMs);
+  return timestamps.filter(timestamp => now - timestamp <= windowMs);
 }
 
-async function checkSpamAndAutoMute(user: { id: number; role: "user" | "admin" | "moderator" }, kind: PostKind) {
+async function checkSpamAndAutoMute(
+  user: { id: number; role: "user" | "admin" | "moderator" },
+  kind: PostKind
+) {
   if (user.role === "admin" || user.role === "moderator") {
     return;
   }
 
   const now = Date.now();
-  const tracker = postSpamTrackers.get(user.id) ?? { articleTimes: [], commentTimes: [] };
-  const maxWindowMs = Math.max(ARTICLE_SPAM_WINDOW_MS, COMMENT_SPAM_WINDOW_MS, COMBINED_SPAM_WINDOW_MS);
+  const tracker = postSpamTrackers.get(user.id) ?? {
+    articleTimes: [],
+    commentTimes: [],
+  };
+  const maxWindowMs = Math.max(
+    ARTICLE_SPAM_WINDOW_MS,
+    COMMENT_SPAM_WINDOW_MS,
+    COMBINED_SPAM_WINDOW_MS
+  );
 
   tracker.articleTimes = trimRecent(tracker.articleTimes, now, maxWindowMs);
   tracker.commentTimes = trimRecent(tracker.commentTimes, now, maxWindowMs);
@@ -105,8 +132,16 @@ async function checkSpamAndAutoMute(user: { id: number; role: "user" | "admin" |
     tracker.commentTimes.push(now);
   }
 
-  const recentArticleCount = trimRecent(tracker.articleTimes, now, ARTICLE_SPAM_WINDOW_MS).length;
-  const recentCommentCount = trimRecent(tracker.commentTimes, now, COMMENT_SPAM_WINDOW_MS).length;
+  const recentArticleCount = trimRecent(
+    tracker.articleTimes,
+    now,
+    ARTICLE_SPAM_WINDOW_MS
+  ).length;
+  const recentCommentCount = trimRecent(
+    tracker.commentTimes,
+    now,
+    COMMENT_SPAM_WINDOW_MS
+  ).length;
   const recentCombinedCount =
     trimRecent(tracker.articleTimes, now, COMBINED_SPAM_WINDOW_MS).length +
     trimRecent(tracker.commentTimes, now, COMBINED_SPAM_WINDOW_MS).length;
@@ -123,14 +158,18 @@ async function checkSpamAndAutoMute(user: { id: number; role: "user" | "admin" |
     await db.muteUser(user.id);
     throw new TRPCError({
       code: "FORBIDDEN",
-      message: "Your account was automatically muted because it posted too frequently. Please contact an admin if this was a mistake.",
+      message:
+        "Your account was automatically muted because it posted too frequently. Please contact an admin if this was a mistake.",
     });
   }
 }
 
 const modProcedure = protectedProcedure.use(({ ctx, next }) => {
   if (ctx.user.role !== "admin" && ctx.user.role !== "moderator") {
-    throw new TRPCError({ code: "FORBIDDEN", message: "Moderator access required" });
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Moderator access required",
+    });
   }
   return next({ ctx });
 });
@@ -182,7 +221,10 @@ function createPasswordResetUrl(token: string): string {
 }
 
 function formatLockoutMessage(lockedUntil: Date) {
-  const minutes = Math.max(1, Math.ceil((lockedUntil.getTime() - Date.now()) / (60 * 1000)));
+  const minutes = Math.max(
+    1,
+    Math.ceil((lockedUntil.getTime() - Date.now()) / (60 * 1000))
+  );
   return `Too many failed login attempts. Please wait ${minutes} minute${minutes === 1 ? "" : "s"} before trying again.`;
 }
 
@@ -198,7 +240,41 @@ function extractMentionHandles(content: string) {
   return Array.from(handles);
 }
 
-async function setSessionCookie(ctx: any, user: NonNullable<Awaited<ReturnType<typeof db.getUserById>>>) {
+function normalizeNewsTags(tags: string[]) {
+  return Array.from(new Set(tags.map(tag => tag.trim()).filter(Boolean))).slice(
+    0,
+    12
+  );
+}
+
+function normalizeNewsAuthorName(authorName?: string | null) {
+  return authorName?.trim().slice(0, 128) || "RTSG";
+}
+
+function normalizeNewsAuthorXUrl(authorXUrl?: string | null) {
+  const value = authorXUrl?.trim();
+  if (!value) return null;
+
+  const handle = value.match(/^@?([A-Za-z0-9_]{1,15})$/)?.[1];
+  if (handle) return `https://x.com/${handle}`;
+
+  try {
+    const url = new URL(
+      /^[a-z]+:\/\//i.test(value) ? value : `https://${value}`
+    );
+    const hostname = url.hostname.replace(/^www\./, "").toLowerCase();
+    if (hostname !== "x.com" && hostname !== "twitter.com") return null;
+    url.protocol = "https:";
+    return url.toString().slice(0, 512);
+  } catch {
+    return null;
+  }
+}
+
+async function setSessionCookie(
+  ctx: any,
+  user: NonNullable<Awaited<ReturnType<typeof db.getUserById>>>
+) {
   const sessionToken = await import("./_core/sdk").then(({ sdk }) =>
     sdk.createSessionToken(user.openId, {
       name: user.name || "",
@@ -214,12 +290,32 @@ async function setSessionCookie(ctx: any, user: NonNullable<Awaited<ReturnType<t
   });
 }
 
+function createNewsArticleUrl(
+  req: Parameters<typeof getRequestOrigin>[0],
+  articleId: number
+) {
+  const origin = getRequestOrigin(req).replace(/\/+$/, "");
+  const host = req.hostname.toLowerCase();
+  const path =
+    host === "news.rtsg.org"
+      ? `/articles/${articleId}`
+      : `/news/articles/${articleId}`;
+  return `${origin}${path}`;
+}
+
 // ─── Admin session tokens (in-memory store for server-side validation) ──────
 
-const adminSessions = new Map<string, { username: string; createdAt: number }>();
+const adminSessions = new Map<
+  string,
+  { username: string; createdAt: number }
+>();
 const fallbackAdminLoginAttempts = new Map<
   string,
-  { failedAttemptCount: number; lockedUntil: number | null; lastFailedAt: number }
+  {
+    failedAttemptCount: number;
+    lockedUntil: number | null;
+    lastFailedAt: number;
+  }
 >();
 
 function normalizeAdminUsername(username: string) {
@@ -294,7 +390,12 @@ function getHeaderValue(value: string | string[] | undefined) {
 
 function getRequestIp(ctx: { req: any }) {
   const forwardedFor = getHeaderValue(ctx.req.headers["x-forwarded-for"]);
-  return forwardedFor?.split(",")[0]?.trim() || ctx.req.ip || ctx.req.socket?.remoteAddress || null;
+  return (
+    forwardedFor?.split(",")[0]?.trim() ||
+    ctx.req.ip ||
+    ctx.req.socket?.remoteAddress ||
+    null
+  );
 }
 
 function getRequestUserAgent(ctx: { req: any }) {
@@ -314,7 +415,10 @@ function getAdminActor(ctx: { req: any; user: any }) {
     };
   }
 
-  if (ctx.user && (ctx.user.role === "admin" || ctx.user.role === "moderator")) {
+  if (
+    ctx.user &&
+    (ctx.user.role === "admin" || ctx.user.role === "moderator")
+  ) {
     return {
       actorType: "user",
       actorUsername: ctx.user.email || ctx.user.name || `user:${ctx.user.id}`,
@@ -380,7 +484,6 @@ async function logAdminAuthAction(
   }
 }
 
-
 // ─── YouTube Data API helpers ───────────────────────────────────────────────
 
 type LatestYouTubeVideo = {
@@ -410,7 +513,9 @@ function formatPublishedTime(publishedAt?: string): string | null {
   const publishedDate = new Date(publishedAt);
   if (Number.isNaN(publishedDate.getTime())) return null;
 
-  const diffDays = Math.floor((Date.now() - publishedDate.getTime()) / (1000 * 60 * 60 * 24));
+  const diffDays = Math.floor(
+    (Date.now() - publishedDate.getTime()) / (1000 * 60 * 60 * 24)
+  );
 
   if (diffDays <= 0) return "today";
   if (diffDays === 1) return "1 day ago";
@@ -468,7 +573,8 @@ async function getYouTubeUploadsPlaylistId(apiKey: string): Promise<string> {
     }>;
   }>(url);
 
-  const uploadsPlaylistId = data.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
+  const uploadsPlaylistId =
+    data.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
 
   if (!uploadsPlaylistId) {
     throw new Error("Could not find YouTube uploads playlist ID.");
@@ -535,7 +641,9 @@ async function fetchLatestYouTubeVideoFromApi(): Promise<LatestYouTubeVideo | nu
   };
 }
 
-async function fetchYouTubeOEmbed(videoId: string): Promise<{ title: string | null; thumbnail: string | null }> {
+async function fetchYouTubeOEmbed(
+  videoId: string
+): Promise<{ title: string | null; thumbnail: string | null }> {
   const url = new URL("https://www.youtube.com/oembed");
   url.searchParams.set("url", `https://www.youtube.com/watch?v=${videoId}`);
   url.searchParams.set("format", "json");
@@ -551,7 +659,10 @@ async function fetchYouTubeOEmbed(videoId: string): Promise<{ title: string | nu
       thumbnail: data.thumbnail_url || null,
     };
   } catch (err) {
-    console.warn("[YouTube] Failed to fetch manual video oEmbed metadata:", err);
+    console.warn(
+      "[YouTube] Failed to fetch manual video oEmbed metadata:",
+      err
+    );
     return { title: null, thumbnail: null };
   }
 }
@@ -650,7 +761,10 @@ export const appRouter = router({
         const email = normalizeEmail(input.email);
         const rateLimit = await db.getLoginRateLimit(email);
 
-        if (rateLimit?.lockedUntil && rateLimit.lockedUntil.getTime() > Date.now()) {
+        if (
+          rateLimit?.lockedUntil &&
+          rateLimit.lockedUntil.getTime() > Date.now()
+        ) {
           throw new TRPCError({
             code: "TOO_MANY_REQUESTS",
             message: formatLockoutMessage(rateLimit.lockedUntil),
@@ -659,14 +773,20 @@ export const appRouter = router({
 
         const credential = await db.getUserCredentialByEmail(email);
 
-        if (!credential || !verifyLocalPassword(input.password, credential.passwordHash)) {
+        if (
+          !credential ||
+          !verifyLocalPassword(input.password, credential.passwordHash)
+        ) {
           const failedAttempt = await db.recordFailedLoginAttempt(
             email,
             LOGIN_MAX_FAILED_ATTEMPTS,
             AUTH_LOCKOUT_MS
           );
 
-          if (failedAttempt?.lockedUntil && failedAttempt.lockedUntil.getTime() > Date.now()) {
+          if (
+            failedAttempt?.lockedUntil &&
+            failedAttempt.lockedUntil.getTime() > Date.now()
+          ) {
             throw new TRPCError({
               code: "TOO_MANY_REQUESTS",
               message: formatLockoutMessage(failedAttempt.lockedUntil),
@@ -682,7 +802,11 @@ export const appRouter = router({
         const user = await db.getUserById(credential.userId);
 
         if (!user) {
-          await db.recordFailedLoginAttempt(email, LOGIN_MAX_FAILED_ATTEMPTS, AUTH_LOCKOUT_MS);
+          await db.recordFailedLoginAttempt(
+            email,
+            LOGIN_MAX_FAILED_ATTEMPTS,
+            AUTH_LOCKOUT_MS
+          );
           throw new TRPCError({
             code: "UNAUTHORIZED",
             message: "Invalid email or password",
@@ -736,7 +860,7 @@ export const appRouter = router({
         sendPasswordResetEmail({
           email,
           resetUrl: createPasswordResetUrl(token),
-        }).catch((error) => {
+        }).catch(error => {
           console.error("[Auth] Failed to send password reset email:", error);
         });
 
@@ -775,7 +899,7 @@ export const appRouter = router({
         return { success: true };
       }),
 
-    me: publicProcedure.query((opts) => opts.ctx.user),
+    me: publicProcedure.query(opts => opts.ctx.user),
 
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
@@ -820,12 +944,16 @@ export const appRouter = router({
             ? null
             : recordFallbackFailedAdminLogin(username);
           const nextLockedUntil =
-            failedAttempt?.lockedUntil && failedAttempt.lockedUntil.getTime() > Date.now()
+            failedAttempt?.lockedUntil &&
+            failedAttempt.lockedUntil.getTime() > Date.now()
               ? failedAttempt.lockedUntil
-              : fallbackFailedAttempt?.lockedUntil ?? null;
+              : (fallbackFailedAttempt?.lockedUntil ?? null);
 
           await logAdminAuthAction(ctx, "admin.login_failed", username, {
-            failedAttemptCount: failedAttempt?.failedAttemptCount ?? fallbackFailedAttempt?.failedAttemptCount ?? null,
+            failedAttemptCount:
+              failedAttempt?.failedAttemptCount ??
+              fallbackFailedAttempt?.failedAttemptCount ??
+              null,
             lockedUntil: nextLockedUntil?.toISOString() ?? null,
           });
 
@@ -836,14 +964,20 @@ export const appRouter = router({
             });
           }
 
-          throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid credentials" });
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "Invalid credentials",
+          });
         }
 
         await db.clearAdminLoginFailures(username);
         clearFallbackAdminLoginFailures(username);
 
         const token = crypto.randomBytes(32).toString("hex");
-        adminSessions.set(token, { username: cred.username, createdAt: Date.now() });
+        adminSessions.set(token, {
+          username: cred.username,
+          createdAt: Date.now(),
+        });
         await logAdminAuthAction(ctx, "admin.login_success", cred.username);
         return { success: true, token, username: cred.username };
       }),
@@ -863,11 +997,16 @@ export const appRouter = router({
         return { success: true };
       }),
     setup: publicProcedure
-      .input(z.object({ username: z.string().min(3), password: z.string().min(6) }))
+      .input(
+        z.object({ username: z.string().min(3), password: z.string().min(6) })
+      )
       .mutation(async ({ input, ctx }) => {
         const exists = await db.adminCredentialExists();
         if (exists) {
-          throw new TRPCError({ code: "CONFLICT", message: "Admin credentials already configured" });
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Admin credentials already configured",
+          });
         }
         const passwordHash = hashPassword(input.password);
         await db.createAdminCredential(input.username, passwordHash);
@@ -882,7 +1021,11 @@ export const appRouter = router({
 
   adminLogs: router({
     list: dashboardProcedure
-      .input(z.object({ limit: z.number().int().min(1).max(200).optional() }).optional())
+      .input(
+        z
+          .object({ limit: z.number().int().min(1).max(200).optional() })
+          .optional()
+      )
       .query(async ({ input }) => {
         return db.getAdminActionLogs(input?.limit ?? 100);
       }),
@@ -895,7 +1038,12 @@ export const appRouter = router({
       return db.getAllUsers();
     }),
     updateRole: dashboardProcedure
-      .input(z.object({ userId: z.number(), role: z.enum(["user", "admin", "moderator"]) }))
+      .input(
+        z.object({
+          userId: z.number(),
+          role: z.enum(["user", "admin", "moderator"]),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         await db.updateUserRole(input.userId, input.role);
         await logAdminAction(ctx, {
@@ -906,23 +1054,29 @@ export const appRouter = router({
         });
         return { success: true };
       }),
-    getById: publicProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
-      const user = await db.getUserById(input.id);
-      if (!user) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
-      return {
-        id: user.id,
-        name: user.name,
-        role: user.role,
-        avatarUrl: user.avatarUrl,
-        profileBio: user.profileBio,
-        createdAt: user.createdAt,
-      };
-    }),
-    profile: publicProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
-      const profile = await db.getPublicUserProfile(input.id);
-      if (!profile) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
-      return profile;
-    }),
+    getById: publicProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => {
+        const user = await db.getUserById(input.id);
+        if (!user)
+          throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
+        return {
+          id: user.id,
+          name: user.name,
+          role: user.role,
+          avatarUrl: user.avatarUrl,
+          profileBio: user.profileBio,
+          createdAt: user.createdAt,
+        };
+      }),
+    profile: publicProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input }) => {
+        const profile = await db.getPublicUserProfile(input.id);
+        if (!profile)
+          throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
+        return profile;
+      }),
     mentionSearch: protectedProcedure
       .input(z.object({ query: z.string().max(64).optional() }).optional())
       .query(async ({ input }) => {
@@ -998,29 +1152,311 @@ export const appRouter = router({
       }),
   }),
 
+  // ─── RTSG News ────────────────────────────────────────────────────────────
+
+  news: router({
+    list: publicProcedure
+      .input(
+        z
+          .object({
+            limit: z.number().optional(),
+            offset: z.number().optional(),
+            searchQuery: z.string().optional(),
+            category: newsCategorySchema.optional(),
+            includeUnpublished: z.boolean().optional(),
+          })
+          .optional()
+      )
+      .query(async ({ input, ctx }) => {
+        const canSeeUnpublished =
+          ctx.user?.role === "admin" ||
+          validateAdminToken(
+            ctx.req.headers["x-admin-token"] as string | undefined
+          );
+        return db.getNewsArticles({
+          limit: input?.limit ?? 50,
+          offset: input?.offset ?? 0,
+          searchQuery: input?.searchQuery,
+          category: input?.category,
+          includeUnpublished: Boolean(
+            input?.includeUnpublished && canSeeUnpublished
+          ),
+        });
+      }),
+    getFeatured: publicProcedure.query(async () => {
+      return (await db.getFeaturedNewsArticle()) ?? null;
+    }),
+    getById: publicProcedure
+      .input(
+        z.object({
+          id: z.number().int().positive(),
+          includeUnpublished: z.boolean().optional(),
+        })
+      )
+      .query(async ({ input, ctx }) => {
+        const canSeeUnpublished =
+          ctx.user?.role === "admin" ||
+          validateAdminToken(
+            ctx.req.headers["x-admin-token"] as string | undefined
+          );
+        return (
+          (await db.getNewsArticleById(
+            input.id,
+            Boolean(input.includeUnpublished && canSeeUnpublished)
+          )) ?? null
+        );
+      }),
+    incrementView: publicProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ input }) => {
+        await db.incrementNewsArticleViewCount(input.id);
+        return { success: true };
+      }),
+    create: dashboardProcedure
+      .input(
+        z.object({
+          title: z.string().min(1),
+          subtitle: z.string().optional(),
+          content: z.string(),
+          excerpt: z.string().optional(),
+          coverImageUrl: z.string().optional(),
+          attributions: z.string().optional(),
+          category: newsCategorySchema.optional(),
+          tags: newsTagsSchema,
+          status: newsStatusSchema.optional(),
+          authorName: z.string().optional(),
+          authorXUrl: z.string().optional(),
+          isPublished: z.boolean().optional().default(true),
+          isFeatured: z.boolean().optional().default(false),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const actor = getAdminActor(ctx);
+        const status =
+          input.status ?? (input.isPublished ? "published" : "draft");
+        const articleId = await db.createNewsArticle({
+          title: input.title,
+          subtitle: input.subtitle?.trim() || null,
+          content: input.content,
+          excerpt: input.excerpt || null,
+          coverImageUrl: input.coverImageUrl || null,
+          attributions: input.attributions?.trim() || null,
+          category: normalizeNewsCategory(input.category),
+          tags: normalizeNewsTags(input.tags),
+          status,
+          authorId: actor.actorUserId ?? null,
+          authorName: normalizeNewsAuthorName(input.authorName),
+          authorXUrl: normalizeNewsAuthorXUrl(input.authorXUrl),
+          isPublished: status === "published",
+        });
+
+        if (!articleId) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        if (input.isFeatured && status === "published") {
+          await db.setFeaturedNewsArticle(articleId);
+        }
+        const articleUrl = createNewsArticleUrl(ctx.req, articleId);
+
+        await logAdminAction(ctx, {
+          action: "news.create",
+          targetType: "news_article",
+          targetId: articleId,
+          metadata: {
+            title: input.title,
+            category: normalizeNewsCategory(input.category),
+            status,
+            tags: normalizeNewsTags(input.tags),
+            authorName: normalizeNewsAuthorName(input.authorName),
+          },
+        });
+
+        return { success: true, articleId, articleUrl, status };
+      }),
+    update: dashboardProcedure
+      .input(
+        z.object({
+          id: z.number().int().positive(),
+          title: z.string().min(1),
+          subtitle: z.string().optional(),
+          content: z.string(),
+          excerpt: z.string().optional(),
+          coverImageUrl: z.string().optional(),
+          attributions: z.string().optional(),
+          category: newsCategorySchema.optional(),
+          tags: newsTagsSchema,
+          status: newsStatusSchema.optional(),
+          authorName: z.string().optional(),
+          authorXUrl: z.string().optional(),
+          isPublished: z.boolean().optional().default(true),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const article = await db.getNewsArticleById(input.id, true);
+        if (!article)
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "News article not found",
+          });
+        const status =
+          input.status ?? (input.isPublished ? "published" : "draft");
+
+        await db.updateNewsArticle(input.id, {
+          title: input.title,
+          subtitle: input.subtitle?.trim() || null,
+          content: input.content,
+          excerpt: input.excerpt || null,
+          coverImageUrl: input.coverImageUrl || null,
+          attributions: input.attributions?.trim() || null,
+          category: normalizeNewsCategory(input.category),
+          tags: normalizeNewsTags(input.tags),
+          status,
+          authorName: normalizeNewsAuthorName(input.authorName),
+          authorXUrl: normalizeNewsAuthorXUrl(input.authorXUrl),
+          isPublished: status === "published",
+        });
+
+        await logAdminAction(ctx, {
+          action: "news.update",
+          targetType: "news_article",
+          targetId: input.id,
+          metadata: {
+            title: input.title,
+            category: normalizeNewsCategory(input.category),
+            status,
+            tags: normalizeNewsTags(input.tags),
+            authorName: normalizeNewsAuthorName(input.authorName),
+          },
+        });
+
+        return {
+          success: true,
+          articleId: input.id,
+          articleUrl: createNewsArticleUrl(ctx.req, input.id),
+          status,
+        };
+      }),
+    publishDraft: dashboardProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ input, ctx }) => {
+        const article = await db.getNewsArticleById(input.id, true);
+        if (!article)
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "News article not found",
+          });
+
+        await db.publishNewsArticle(input.id);
+        await logAdminAction(ctx, {
+          action: "news.publish_draft",
+          targetType: "news_article",
+          targetId: input.id,
+          metadata: { title: article.title },
+        });
+
+        return {
+          success: true,
+          articleId: input.id,
+          articleUrl: createNewsArticleUrl(ctx.req, input.id),
+          status: "published" as const,
+        };
+      }),
+    setFeatured: dashboardProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ input, ctx }) => {
+        const article = await db.getNewsArticleById(input.id, true);
+        if (!article)
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "News article not found",
+          });
+        if (!article.isPublished) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Only published news articles can be featured",
+          });
+        }
+
+        await db.setFeaturedNewsArticle(input.id);
+        await logAdminAction(ctx, {
+          action: "news.set_featured",
+          targetType: "news_article",
+          targetId: input.id,
+          metadata: { title: article.title },
+        });
+
+        return { success: true };
+      }),
+    delete: dashboardProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ input, ctx }) => {
+        const article = await db.getNewsArticleById(input.id, true);
+        if (!article)
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "News article not found",
+          });
+
+        await db.deleteNewsArticle(input.id);
+        await logAdminAction(ctx, {
+          action: "news.delete",
+          targetType: "news_article",
+          targetId: input.id,
+          metadata: { title: article.title },
+        });
+
+        return { success: true };
+      }),
+  }),
+
   // ─── Articles ─────────────────────────────────────────────────────────────
 
   articles: router({
     list: publicProcedure
-      .input(z.object({ limit: z.number().optional(), offset: z.number().optional(), searchQuery: z.string().optional(), sortBy: z.enum(['newest', 'oldest', 'mostViewed']).optional() }).optional())
+      .input(
+        z
+          .object({
+            limit: z.number().optional(),
+            offset: z.number().optional(),
+            searchQuery: z.string().optional(),
+            sortBy: z.enum(["newest", "oldest", "mostViewed"]).optional(),
+          })
+          .optional()
+      )
       .query(async ({ input }) => {
-        return db.getArticles(input?.limit || 50, input?.offset || 0, input?.searchQuery, input?.sortBy || 'newest');
+        return db.getArticles(
+          input?.limit || 50,
+          input?.offset || 0,
+          input?.searchQuery,
+          input?.sortBy || "newest"
+        );
       }),
-    getById: publicProcedure.input(z.object({ id: z.number() })).query(async ({ input, ctx }) => {
-      const article = await db.getArticleById(input.id);
-      if (!article) return undefined;
-      if (!article.isPublished && (!ctx.user || (ctx.user.id !== article.authorId && ctx.user.role !== "admin"))) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "This draft is not accessible" });
-      }
-      return article;
-    }),
-    incrementView: publicProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
-      await db.incrementViewCount(input.id);
-      return { success: true };
-    }),
-    getByAuthor: publicProcedure.input(z.object({ authorId: z.number() })).query(async ({ input }) => {
-      return db.getArticlesByAuthor(input.authorId);
-    }),
+    getById: publicProcedure
+      .input(z.object({ id: z.number() }))
+      .query(async ({ input, ctx }) => {
+        const article = await db.getArticleById(input.id);
+        if (!article) return undefined;
+        if (
+          !article.isPublished &&
+          (!ctx.user ||
+            (ctx.user.id !== article.authorId && ctx.user.role !== "admin"))
+        ) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "This draft is not accessible",
+          });
+        }
+        return article;
+      }),
+    incrementView: publicProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await db.incrementViewCount(input.id);
+        return { success: true };
+      }),
+    getByAuthor: publicProcedure
+      .input(z.object({ authorId: z.number() }))
+      .query(async ({ input }) => {
+        return db.getArticlesByAuthor(input.authorId);
+      }),
     create: protectedProcedure
       .input(
         z.object({
@@ -1034,13 +1470,18 @@ export const appRouter = router({
       .mutation(async ({ input, ctx }) => {
         const isMuted = await db.isUserMuted(ctx.user.id);
         if (isMuted) {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Your account is muted and cannot create articles" });
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Your account is muted and cannot create articles",
+          });
         }
 
         await checkSpamAndAutoMute(ctx.user, "article");
 
         if (ctx.user.role !== "admin") {
-          const currentArticleCount = await db.countArticlesByAuthor(ctx.user.id);
+          const currentArticleCount = await db.countArticlesByAuthor(
+            ctx.user.id
+          );
           if (currentArticleCount >= ARTICLE_LIMIT_PER_USER) {
             throw new TRPCError({
               code: "FORBIDDEN",
@@ -1078,35 +1519,52 @@ export const appRouter = router({
         if (article.authorId !== ctx.user.id && ctx.user.role !== "admin") {
           throw new TRPCError({ code: "FORBIDDEN" });
         }
-        await db.updateArticle(input.id, input.title, input.content, input.excerpt || null, input.coverImageUrl || null);
+        await db.updateArticle(
+          input.id,
+          input.title,
+          input.content,
+          input.excerpt || null,
+          input.coverImageUrl || null
+        );
         return { success: true };
       }),
-    delete: publicProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
-      const article = await db.getArticleById(input.id);
-      if (!article) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Article not found" });
-      }
+    delete: publicProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const article = await db.getArticleById(input.id);
+        if (!article) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Article not found",
+          });
+        }
 
-      const authHeader = ctx.req.headers["x-admin-token"] as string | undefined;
-      const isDashboardAdmin = validateAdminToken(authHeader);
-      const isOwner = ctx.user?.id === article.authorId;
-      const isModerator = ctx.user?.role === "admin" || ctx.user?.role === "moderator";
+        const authHeader = ctx.req.headers["x-admin-token"] as
+          | string
+          | undefined;
+        const isDashboardAdmin = validateAdminToken(authHeader);
+        const isOwner = ctx.user?.id === article.authorId;
+        const isModerator =
+          ctx.user?.role === "admin" || ctx.user?.role === "moderator";
 
-      if (!isDashboardAdmin && !isOwner && !isModerator) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "You can only delete your own articles" });
-      }
+        if (!isDashboardAdmin && !isOwner && !isModerator) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You can only delete your own articles",
+          });
+        }
 
-      await db.deleteArticle(input.id);
-      if (isDashboardAdmin || isModerator) {
-        await logAdminAction(ctx, {
-          action: "articles.delete",
-          targetType: "article",
-          targetId: input.id,
-          metadata: { authorId: article.authorId, title: article.title },
-        });
-      }
-      return { success: true };
-    }),
+        await db.deleteArticle(input.id);
+        if (isDashboardAdmin || isModerator) {
+          await logAdminAction(ctx, {
+            action: "articles.delete",
+            targetType: "article",
+            targetId: input.id,
+            metadata: { authorId: article.authorId, title: article.title },
+          });
+        }
+        return { success: true };
+      }),
     togglePin: modProcedure
       .input(z.object({ id: z.number(), isPinned: z.boolean() }))
       .mutation(async ({ input, ctx }) => {
@@ -1132,7 +1590,7 @@ export const appRouter = router({
         return { success: true };
       }),
     getUserDrafts: protectedProcedure.query(async ({ ctx }) => {
-      return db.getUserDrafts(ctx.user.id);
+      return db.getUnifiedUserDrafts(ctx.user.id, ctx.user.role === "admin");
     }),
     publishDraft: protectedProcedure
       .input(z.object({ id: z.number() }))
@@ -1150,26 +1608,41 @@ export const appRouter = router({
   // ─── Comments ─────────────────────────────────────────────────────────────
 
   comments: router({
-    listByArticle: publicProcedure.input(z.object({ articleId: z.number() })).query(async ({ input }) => {
-      return db.getCommentsByArticle(input.articleId);
-    }),
+    listByArticle: publicProcedure
+      .input(z.object({ articleId: z.number() }))
+      .query(async ({ input }) => {
+        return db.getCommentsByArticle(input.articleId);
+      }),
     create: protectedProcedure
       .input(z.object({ content: z.string().min(1), articleId: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const isMuted = await db.isUserMuted(ctx.user.id);
         if (isMuted) {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Your account is muted and cannot create comments" });
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Your account is muted and cannot create comments",
+          });
         }
         await checkSpamAndAutoMute(ctx.user, "comment");
         const article = await db.getArticleById(input.articleId);
         if (!article) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Article not found" });
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Article not found",
+          });
         }
         if (article.isLocked) {
-          throw new TRPCError({ code: "FORBIDDEN", message: "Comments are locked on this article" });
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Comments are locked on this article",
+          });
         }
 
-        const commentId = await db.createComment(input.content, input.articleId, ctx.user.id);
+        const commentId = await db.createComment(
+          input.content,
+          input.articleId,
+          ctx.user.id
+        );
         if (commentId && article.authorId !== ctx.user.id) {
           await db.createArticleCommentNotification({
             userId: article.authorId,
@@ -1180,7 +1653,9 @@ export const appRouter = router({
         }
 
         if (commentId) {
-          const mentionedUsers = await db.findUsersByMentionHandles(extractMentionHandles(input.content));
+          const mentionedUsers = await db.findUsersByMentionHandles(
+            extractMentionHandles(input.content)
+          );
           const notifiedUserIds = new Set<number>([ctx.user.id]);
           if (article.authorId !== ctx.user.id) {
             notifiedUserIds.add(article.authorId);
@@ -1188,8 +1663,8 @@ export const appRouter = router({
 
           await Promise.all(
             mentionedUsers
-              .filter((mentionedUser) => !notifiedUserIds.has(mentionedUser.id))
-              .map(async (mentionedUser) => {
+              .filter(mentionedUser => !notifiedUserIds.has(mentionedUser.id))
+              .map(async mentionedUser => {
                 notifiedUserIds.add(mentionedUser.id);
                 await db.createArticleCommentNotification({
                   userId: mentionedUser.id,
@@ -1203,32 +1678,46 @@ export const appRouter = router({
         }
         return { success: true };
       }),
-    delete: publicProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
-      const comment = await db.getCommentById(input.id);
-      if (!comment) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Comment not found" });
-      }
+    delete: publicProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const comment = await db.getCommentById(input.id);
+        if (!comment) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Comment not found",
+          });
+        }
 
-      const authHeader = ctx.req.headers["x-admin-token"] as string | undefined;
-      const isDashboardAdmin = validateAdminToken(authHeader);
-      const isOwner = ctx.user?.id === comment.authorId;
-      const isStaff = ctx.user?.role === "admin" || ctx.user?.role === "moderator";
+        const authHeader = ctx.req.headers["x-admin-token"] as
+          | string
+          | undefined;
+        const isDashboardAdmin = validateAdminToken(authHeader);
+        const isOwner = ctx.user?.id === comment.authorId;
+        const isStaff =
+          ctx.user?.role === "admin" || ctx.user?.role === "moderator";
 
-      if (!isDashboardAdmin && !isOwner && !isStaff) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "You can only delete your own comments" });
-      }
+        if (!isDashboardAdmin && !isOwner && !isStaff) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You can only delete your own comments",
+          });
+        }
 
-      await db.deleteComment(input.id);
-      if (isDashboardAdmin || isStaff) {
-        await logAdminAction(ctx, {
-          action: "comments.delete",
-          targetType: "comment",
-          targetId: input.id,
-          metadata: { articleId: comment.articleId, authorId: comment.authorId },
-        });
-      }
-      return { success: true };
-    }),
+        await db.deleteComment(input.id);
+        if (isDashboardAdmin || isStaff) {
+          await logAdminAction(ctx, {
+            action: "comments.delete",
+            targetType: "comment",
+            targetId: input.id,
+            metadata: {
+              articleId: comment.articleId,
+              authorId: comment.authorId,
+            },
+          });
+        }
+        return { success: true };
+      }),
   }),
 
   // ─── Notifications ───────────────────────────────────────────────────────
@@ -1261,11 +1750,18 @@ export const appRouter = router({
 
   upload: router({
     image: protectedProcedure
-      .input(z.object({ imageBase64: z.string(), mimeType: z.string(), filename: z.string().optional() }))
+      .input(
+        z.object({
+          imageBase64: z.string(),
+          mimeType: z.string(),
+          filename: z.string().optional(),
+          folder: z.enum(["articles", "news"]).optional().default("articles"),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         const buffer = Buffer.from(input.imageBase64, "base64");
         const ext = input.mimeType.split("/")[1] || "png";
-        const key = `articles/${ctx.user.id}-${Date.now()}.${ext}`;
+        const key = `${input.folder}/${ctx.user.id}-${Date.now()}.${ext}`;
         const { url } = await storagePut(key, buffer, input.mimeType);
         return { success: true, url };
       }),
@@ -1274,11 +1770,15 @@ export const appRouter = router({
   // ─── Site Pages ────────────────────────────────────────────────────────
 
   pages: router({
-    getBySlug: publicProcedure.input(z.object({ slug: z.string() })).query(async ({ input }) => {
-      return db.getPageBySlug(input.slug);
-    }),
+    getBySlug: publicProcedure
+      .input(z.object({ slug: z.string() }))
+      .query(async ({ input }) => {
+        return db.getPageBySlug(input.slug);
+      }),
     update: dashboardProcedure
-      .input(z.object({ slug: z.string(), title: z.string(), content: z.string() }))
+      .input(
+        z.object({ slug: z.string(), title: z.string(), content: z.string() })
+      )
       .mutation(async ({ input, ctx }) => {
         await db.updatePage(input.slug, input.title, input.content);
         await logAdminAction(ctx, {
@@ -1307,31 +1807,40 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input }) => {
-        await db.createContactMessage(input.name, input.email, input.subject, input.message);
+        await db.createContactMessage(
+          input.name,
+          input.email,
+          input.subject,
+          input.message
+        );
         const email = await sendContactNotificationEmail(input);
         return { success: true, emailSent: true, emailId: email?.id ?? null };
       }),
     list: dashboardProcedure.query(async () => {
       return db.getContactMessages();
     }),
-    markRead: dashboardProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
-      await db.markMessageRead(input.id);
-      await logAdminAction(ctx, {
-        action: "contact.mark_read",
-        targetType: "contact_message",
-        targetId: input.id,
-      });
-      return { success: true };
-    }),
-    delete: dashboardProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
-      await db.deleteContactMessage(input.id);
-      await logAdminAction(ctx, {
-        action: "contact.delete",
-        targetType: "contact_message",
-        targetId: input.id,
-      });
-      return { success: true };
-    }),
+    markRead: dashboardProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        await db.markMessageRead(input.id);
+        await logAdminAction(ctx, {
+          action: "contact.mark_read",
+          targetType: "contact_message",
+          targetId: input.id,
+        });
+        return { success: true };
+      }),
+    delete: dashboardProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        await db.deleteContactMessage(input.id);
+        await logAdminAction(ctx, {
+          action: "contact.delete",
+          targetType: "contact_message",
+          targetId: input.id,
+        });
+        return { success: true };
+      }),
   }),
 
   resend: router({
@@ -1350,15 +1859,20 @@ export const appRouter = router({
     listProducts: publicProcedure.query(async () => {
       return listShopProducts();
     }),
-    getProduct: publicProcedure.input(z.object({ productId: z.string().min(1) })).query(async ({ input }) => {
-      const product = await getShopProduct(input.productId);
+    getProduct: publicProcedure
+      .input(z.object({ productId: z.string().min(1) }))
+      .query(async ({ input }) => {
+        const product = await getShopProduct(input.productId);
 
-      if (!product) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Product not found" });
-      }
+        if (!product) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Product not found",
+          });
+        }
 
-      return product;
-    }),
+        return product;
+      }),
     updateProductCopy: dashboardProcedure
       .input(
         z.object({
@@ -1377,7 +1891,9 @@ export const appRouter = router({
         return { success: true, product };
       }),
     createCheckoutSession: publicProcedure
-      .input(z.object({ productId: z.string().min(1), variantId: z.string().min(1) }))
+      .input(
+        z.object({ productId: z.string().min(1), variantId: z.string().min(1) })
+      )
       .mutation(async ({ input, ctx }) => {
         try {
           return createShopCheckoutSession({
@@ -1388,7 +1904,10 @@ export const appRouter = router({
         } catch (error) {
           throw new TRPCError({
             code: "INTERNAL_SERVER_ERROR",
-            message: error instanceof Error ? error.message : "Unable to start checkout.",
+            message:
+              error instanceof Error
+                ? error.message
+                : "Unable to start checkout.",
           });
         }
       }),
@@ -1412,7 +1931,10 @@ export const appRouter = router({
         } catch (error) {
           throw new TRPCError({
             code: "INTERNAL_SERVER_ERROR",
-            message: error instanceof Error ? error.message : "Unable to start donation checkout.",
+            message:
+              error instanceof Error
+                ? error.message
+                : "Unable to start donation checkout.",
           });
         }
       }),
@@ -1441,15 +1963,23 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        const profile = GLOBE_PROFILES.find((item) => item.id === input.profileId);
+        const profile = GLOBE_PROFILES.find(
+          item => item.id === input.profileId
+        );
 
         if (!profile) {
-          throw new TRPCError({ code: "NOT_FOUND", message: "Country profile not found" });
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Country profile not found",
+          });
         }
 
         await Promise.all(
-          EDITABLE_GLOBE_PROFILE_FIELDS.map((field) =>
-            db.setSetting(getWorldProfileSettingKey(input.profileId, field), input[field])
+          EDITABLE_GLOBE_PROFILE_FIELDS.map(field =>
+            db.setSetting(
+              getWorldProfileSettingKey(input.profileId, field),
+              input[field]
+            )
           )
         );
 
@@ -1458,11 +1988,14 @@ export const appRouter = router({
           action: "world.update_profile",
           targetType: "world_profile",
           targetId: input.profileId,
-          metadata: { displayName: input.displayName, officialName: input.officialName },
+          metadata: {
+            displayName: input.displayName,
+            officialName: input.officialName,
+          },
         });
         return {
           success: true,
-          profile: profiles.find((item) => item.id === input.profileId) ?? null,
+          profile: profiles.find(item => item.id === input.profileId) ?? null,
         };
       }),
   }),
@@ -1477,7 +2010,10 @@ export const appRouter = router({
     setConstructionMode: dashboardProcedure
       .input(z.object({ isUnderConstruction: z.boolean() }))
       .mutation(async ({ input, ctx }) => {
-        await db.setSetting("isUnderConstruction", input.isUnderConstruction ? "true" : "false");
+        await db.setSetting(
+          "isUnderConstruction",
+          input.isUnderConstruction ? "true" : "false"
+        );
         await logAdminAction(ctx, {
           action: "settings.set_construction_mode",
           targetType: "setting",
@@ -1491,7 +2027,16 @@ export const appRouter = router({
       return { url: url || null };
     }),
     setFeaturedVideoUrl: dashboardProcedure
-      .input(z.object({ url: z.string().url().includes("youtube").or(z.string().url().includes("youtu.be")).or(z.literal("")) }))
+      .input(
+        z.object({
+          url: z
+            .string()
+            .url()
+            .includes("youtube")
+            .or(z.string().url().includes("youtu.be"))
+            .or(z.literal("")),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         await db.setSetting("featuredVideoUrl", input.url);
         await logAdminAction(ctx, {
@@ -1517,12 +2062,17 @@ export const appRouter = router({
       .input(
         z.object({
           enabled: z.boolean(),
-          message: z.string().max(2000, "Popup message must be 2,000 characters or fewer"),
+          message: z
+            .string()
+            .max(2000, "Popup message must be 2,000 characters or fewer"),
         })
       )
       .mutation(async ({ input, ctx }) => {
         await Promise.all([
-          db.setSetting("homepagePopupEnabled", input.enabled ? "true" : "false"),
+          db.setSetting(
+            "homepagePopupEnabled",
+            input.enabled ? "true" : "false"
+          ),
           db.setSetting("homepagePopupMessage", input.message),
         ]);
 
@@ -1530,7 +2080,10 @@ export const appRouter = router({
           action: "settings.set_homepage_popup",
           targetType: "setting",
           targetId: "homepagePopup",
-          metadata: { enabled: input.enabled, messageLength: input.message.length },
+          metadata: {
+            enabled: input.enabled,
+            messageLength: input.message.length,
+          },
         });
         return { success: true };
       }),
@@ -1549,7 +2102,10 @@ export const appRouter = router({
       try {
         latestVideo = await fetchLatestYouTubeVideoFromApi();
       } catch (err) {
-        console.warn("[YouTube] Failed to fetch latest video from YouTube Data API:", err);
+        console.warn(
+          "[YouTube] Failed to fetch latest video from YouTube Data API:",
+          err
+        );
       }
 
       if (!latestVideo) {
@@ -1576,13 +2132,25 @@ export const appRouter = router({
       return db.getPdfResources();
     }),
     create: dashboardProcedure
-      .input(z.object({ title: z.string().min(1), pdfFile: z.string(), filename: z.string() }))
+      .input(
+        z.object({
+          title: z.string().min(1),
+          pdfFile: z.string(),
+          filename: z.string(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         const buffer = Buffer.from(input.pdfFile, "base64");
 
         // Validate PDF magic bytes (%PDF-)
-        if (buffer.length < 5 || buffer.slice(0, 5).toString("ascii") !== "%PDF-") {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "File does not appear to be a valid PDF" });
+        if (
+          buffer.length < 5 ||
+          buffer.slice(0, 5).toString("ascii") !== "%PDF-"
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "File does not appear to be a valid PDF",
+          });
         }
 
         // Sanitize filename: replace spaces and special chars with hyphens, keep alphanumeric/dots/hyphens
@@ -1599,8 +2167,12 @@ export const appRouter = router({
           const result = await storagePut(key, buffer, "application/pdf");
           url = result.url;
         } catch (err) {
-          const msg = err instanceof Error ? err.message : "Unknown storage error";
-          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `PDF upload failed: ${msg}` });
+          const msg =
+            err instanceof Error ? err.message : "Unknown storage error";
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `PDF upload failed: ${msg}`,
+          });
         }
         await db.createPdfResource(input.title, url);
         await logAdminAction(ctx, {
@@ -1610,15 +2182,17 @@ export const appRouter = router({
         });
         return { success: true };
       }),
-    delete: dashboardProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
-      await db.deletePdfResource(input.id);
-      await logAdminAction(ctx, {
-        action: "pdf_resources.delete",
-        targetType: "pdf_resource",
-        targetId: input.id,
-      });
-      return { success: true };
-    }),
+    delete: dashboardProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        await db.deletePdfResource(input.id);
+        await logAdminAction(ctx, {
+          action: "pdf_resources.delete",
+          targetType: "pdf_resource",
+          targetId: input.id,
+        });
+        return { success: true };
+      }),
   }),
 });
 

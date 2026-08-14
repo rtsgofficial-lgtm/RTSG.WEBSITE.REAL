@@ -123,7 +123,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   // Hide nav only on admin pages
   const isAdminPage = location.startsWith("/admin");
-  const showNav = !isAdminPage;
+  const isNewsPage = location.startsWith("/news") || (typeof window !== "undefined" && window.location.hostname === "news.rtsg.org");
+  const showNav = !isAdminPage && !isNewsPage;
 
   const isActive = (href: string) =>
     location === href ||

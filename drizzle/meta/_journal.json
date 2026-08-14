@@ -57,6 +57,34 @@
       "when": 1784349066075,
       "tag": "0007_ordinary_maggott",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "5",
+      "when": 1786550400000,
+      "tag": "0008_news_article_categories",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "5",
+      "when": 1786636800000,
+      "tag": "0009_news_articles",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "5",
+      "when": 1786723200000,
+      "tag": "0010_news_article_management",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "5",
+      "when": 1786809600000,
+      "tag": "0011_news_article_attributions",
+      "breakpoints": true
     }
   ]
 }

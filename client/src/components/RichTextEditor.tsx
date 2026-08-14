@@ -30,15 +30,32 @@ interface RichTextEditorProps {
   content: string;
   onChange: (html: string) => void;
   placeholder?: string;
+  size?: "default" | "large";
+  imageUploadFolder?: "articles" | "news";
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
 
 export default function RichTextEditor({
   content,
   onChange,
   placeholder,
+  size = "default",
+  imageUploadFolder,
 }: RichTextEditorProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadImage = trpc.upload.image.useMutation();
+  const editorSizeClass =
+    size === "large"
+      ? "min-h-[520px] sm:min-h-[640px]"
+      : "min-h-[360px] sm:min-h-[460px]";
 
   const editor = useEditor({
     extensions: [
@@ -65,8 +82,7 @@ export default function RichTextEditor({
     },
     editorProps: {
       attributes: {
-        class:
-          "tiptap-editor article-prose min-h-[360px] sm:min-h-[460px] max-w-none px-4 py-4 sm:px-5 sm:py-5 text-base focus:outline-none",
+        class: `tiptap-editor article-prose ${editorSizeClass} max-w-none px-4 py-4 sm:px-5 sm:py-5 text-base focus:outline-none`,
       },
     },
   });
@@ -99,6 +115,7 @@ export default function RichTextEditor({
             imageBase64: base64,
             mimeType: file.type,
             filename: file.name,
+            folder: imageUploadFolder,
           });
           editor.chain().focus().setImage({ src: result.url }).run();
           toast.success("Image uploaded");
@@ -108,7 +125,7 @@ export default function RichTextEditor({
       };
       reader.readAsDataURL(file);
     },
-    [editor, uploadImage]
+    [editor, uploadImage, imageUploadFolder]
   );
 
   const addLink = useCallback(() => {
@@ -129,6 +146,26 @@ export default function RichTextEditor({
       .focus()
       .extendMarkRange("link")
       .setLink({ href: normalizedUrl })
+      .run();
+  }, [editor]);
+
+  const addFootnote = useCallback(() => {
+    if (!editor) return;
+    const note = window.prompt("Footnote text");
+    if (note === null) return;
+    const footnoteCount =
+      (editor.getHTML().match(/data-footnote-ref=/g) ?? []).length + 1;
+    const safeNote = escapeHtml(note.trim());
+    const noteMarkup = safeNote
+      ? `<p><small><strong>[${footnoteCount}]</strong> ${safeNote}</small></p>`
+      : "";
+
+    editor
+      .chain()
+      .focus()
+      .insertContent(
+        `<sup data-footnote-ref="${footnoteCount}">[${footnoteCount}]</sup>${noteMarkup}`
+      )
       .run();
   }, [editor]);
 
@@ -273,9 +310,12 @@ export default function RichTextEditor({
         >
           <LinkIcon className="w-4 h-4" />
         </ToolbarButton>
+        <ToolbarButton onClick={addFootnote} title="Insert Footnote">
+          <span className="text-[11px] font-black leading-none">Fn</span>
+        </ToolbarButton>
         <ToolbarButton
           onClick={() => fileInputRef.current?.click()}
-          title="Upload Image"
+          title="Insert Image"
         >
           <ImageIcon className="w-4 h-4" />
         </ToolbarButton>

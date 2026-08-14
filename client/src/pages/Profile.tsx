@@ -21,7 +21,6 @@ import { useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/_core/hooks/useAuth";
 
-
 export default function Profile() {
   const { user, isAuthenticated, loading } = useAuth();
   const [, navigate] = useLocation();
@@ -33,11 +32,15 @@ export default function Profile() {
       toast.success("Avatar updated!");
       utils.auth.me.invalidate();
     },
-    onError: (err) => toast.error(err.message),
+    onError: err => toast.error(err.message),
   });
 
   // Fetch user's articles
-  const { data: myArticles, isLoading: articlesLoading, refetch: refetchMyArticles } = trpc.articles.getByAuthor.useQuery(
+  const {
+    data: myArticles,
+    isLoading: articlesLoading,
+    refetch: refetchMyArticles,
+  } = trpc.articles.getByAuthor.useQuery(
     { authorId: user?.id || 0 },
     { enabled: !!user?.id }
   );
@@ -48,7 +51,7 @@ export default function Profile() {
       refetchMyArticles();
       utils.articles.getUserDrafts.invalidate();
     },
-    onError: (err) => toast.error(err.message),
+    onError: err => toast.error(err.message),
   });
 
   const handleAvatarUpload = async (file: File) => {
@@ -104,7 +107,8 @@ export default function Profile() {
     },
   };
 
-  const role = roleConfig[user.role as keyof typeof roleConfig] || roleConfig.user;
+  const role =
+    roleConfig[user.role as keyof typeof roleConfig] || roleConfig.user;
 
   return (
     <div className="container max-w-2xl mx-auto py-12">
@@ -136,7 +140,7 @@ export default function Profile() {
                 type="file"
                 accept="image/*"
                 className="hidden"
-                onChange={(e) => {
+                onChange={e => {
                   const file = e.target.files?.[0];
                   if (file) handleAvatarUpload(file);
                   e.target.value = "";
@@ -168,11 +172,16 @@ export default function Profile() {
               <div className="flex items-center gap-4 text-xs text-muted-foreground">
                 <div className="flex items-center gap-1.5">
                   <Calendar className="w-3 h-3" />
-                  <span>Joined {new Date(user.createdAt).toLocaleDateString()}</span>
+                  <span>
+                    Joined {new Date(user.createdAt).toLocaleDateString()}
+                  </span>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <Clock className="w-3 h-3" />
-                  <span>Last active {new Date(user.lastSignedIn).toLocaleDateString()}</span>
+                  <span>
+                    Last active{" "}
+                    {new Date(user.lastSignedIn).toLocaleDateString()}
+                  </span>
                 </div>
               </div>
 
@@ -200,14 +209,20 @@ export default function Profile() {
             <ProfileDescriptionEditor user={user} />
             <div className="flex items-center justify-between py-3 border-b border-white/5">
               <span className="text-sm text-muted-foreground">Email</span>
-              <span className="text-sm font-medium text-foreground">{user.email || "—"}</span>
+              <span className="text-sm font-medium text-foreground">
+                {user.email || "—"}
+              </span>
             </div>
             <div className="flex items-center justify-between py-3 border-b border-white/5">
               <span className="text-sm text-muted-foreground">Email</span>
-              <span className="text-sm font-medium text-foreground">{user.email || "—"}</span>
+              <span className="text-sm font-medium text-foreground">
+                {user.email || "—"}
+              </span>
             </div>
             <div className="flex items-center justify-between py-3 border-b border-white/5">
-              <span className="text-sm text-muted-foreground">Login Method</span>
+              <span className="text-sm text-muted-foreground">
+                Login Method
+              </span>
               <span className="text-sm font-medium text-foreground capitalize">
                 {user.loginMethod || "OAuth"}
               </span>
@@ -222,7 +237,9 @@ export default function Profile() {
               </span>
             </div>
             <div className="flex items-center justify-between py-3">
-              <span className="text-sm text-muted-foreground">Articles Published</span>
+              <span className="text-sm text-muted-foreground">
+                Articles Published
+              </span>
               <span className="text-sm font-medium text-foreground">
                 {myArticles?.length || 0}
               </span>
@@ -249,14 +266,19 @@ export default function Profile() {
 
           {articlesLoading ? (
             <div className="space-y-3">
-              {[1, 2, 3].map((i) => (
-                <Skeleton key={i} className="h-16 w-full bg-white/5 rounded-xl" />
+              {[1, 2, 3].map(i => (
+                <Skeleton
+                  key={i}
+                  className="h-16 w-full bg-white/5 rounded-xl"
+                />
               ))}
             </div>
           ) : !myArticles || myArticles.length === 0 ? (
             <div className="text-center py-8">
               <PenLine className="w-8 h-8 text-muted-foreground/30 mx-auto mb-3" />
-              <p className="text-sm text-muted-foreground">You haven't published any articles yet.</p>
+              <p className="text-sm text-muted-foreground">
+                You haven't published any articles yet.
+              </p>
               <Button
                 onClick={() => navigate("/articles/new")}
                 variant="ghost"
@@ -279,7 +301,9 @@ export default function Profile() {
                       {article.title}
                     </h3>
                     <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-                      <span>{new Date(article.createdAt).toLocaleDateString()}</span>
+                      <span>
+                        {new Date(article.createdAt).toLocaleDateString()}
+                      </span>
                       <span className="flex items-center gap-1">
                         <Eye className="w-3 h-3" />
                         {article.viewCount}
@@ -293,9 +317,13 @@ export default function Profile() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={(e) => {
+                    onClick={e => {
                       e.stopPropagation();
-                      if (confirm(`Delete article "${article.title}" permanently?`)) {
+                      if (
+                        confirm(
+                          `Delete article "${article.title}" permanently?`
+                        )
+                      ) {
                         deleteArticle.mutate({ id: article.id });
                       }
                     }}
@@ -325,7 +353,10 @@ export default function Profile() {
 }
 
 function MyDraftsSection({ userId }: { userId: number }) {
-  const { data: drafts, isLoading } = trpc.articles.getUserDrafts.useQuery(undefined, { enabled: !!userId });
+  const { data: drafts, isLoading } = trpc.articles.getUserDrafts.useQuery(
+    undefined,
+    { enabled: !!userId }
+  );
   const [, navigate] = useLocation();
   const utils = trpc.useUtils();
 
@@ -334,7 +365,19 @@ function MyDraftsSection({ userId }: { userId: number }) {
       toast.success("Article published!");
       utils.articles.getUserDrafts.invalidate();
     },
-    onError: (err) => toast.error(err.message),
+    onError: err => toast.error(err.message),
+  });
+
+  const publishNewsDraft = trpc.news.publishDraft.useMutation({
+    onSuccess: data => {
+      toast.success("News article published!");
+      utils.articles.getUserDrafts.invalidate();
+      utils.news.list.invalidate();
+      if (data.articleUrl) {
+        navigator.clipboard?.writeText(data.articleUrl).catch(() => {});
+      }
+    },
+    onError: err => toast.error(err.message),
   });
 
   const deleteDraft = trpc.articles.delete.useMutation({
@@ -342,13 +385,22 @@ function MyDraftsSection({ userId }: { userId: number }) {
       toast.success("Draft deleted");
       utils.articles.getUserDrafts.invalidate();
     },
-    onError: (err) => toast.error(err.message),
+    onError: err => toast.error(err.message),
+  });
+
+  const deleteNewsDraft = trpc.news.delete.useMutation({
+    onSuccess: () => {
+      toast.success("News draft deleted");
+      utils.articles.getUserDrafts.invalidate();
+      utils.news.list.invalidate();
+    },
+    onError: err => toast.error(err.message),
   });
 
   if (isLoading) {
     return (
       <div className="space-y-3">
-        {[1, 2].map((i) => (
+        {[1, 2].map(i => (
           <Skeleton key={i} className="h-16 w-full bg-white/5 rounded-xl" />
         ))}
       </div>
@@ -359,7 +411,9 @@ function MyDraftsSection({ userId }: { userId: number }) {
     return (
       <div className="text-center py-8">
         <PenLine className="w-8 h-8 text-muted-foreground/30 mx-auto mb-3" />
-        <p className="text-sm text-muted-foreground">No drafts yet. Start writing!</p>
+        <p className="text-sm text-muted-foreground">
+          No drafts yet. Start writing!
+        </p>
       </div>
     );
   }
@@ -367,9 +421,30 @@ function MyDraftsSection({ userId }: { userId: number }) {
   return (
     <div className="space-y-3">
       {drafts.map((draft: any) => (
-        <div key={draft.id} className="flex items-center justify-between p-4 rounded-xl bg-white/[0.02] border border-white/5 hover:border-primary/20 hover:bg-white/[0.04] transition-all">
+        <div
+          key={draft.id}
+          className="flex items-center justify-between p-4 rounded-xl bg-white/[0.02] border border-white/5 hover:border-primary/20 hover:bg-white/[0.04] transition-all"
+        >
           <div className="flex-1 min-w-0">
-            <h3 className="text-sm font-medium text-foreground truncate">{draft.title}</h3>
+            <div className="mb-1 flex items-center gap-2">
+              <span
+                className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
+                  draft.type === "news"
+                    ? "border-primary/30 bg-primary/10 text-primary"
+                    : "border-white/10 bg-white/5 text-muted-foreground"
+                }`}
+              >
+                {draft.label || "Article Draft"}
+              </span>
+              {draft.category && (
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  {draft.category}
+                </span>
+              )}
+            </div>
+            <h3 className="text-sm font-medium text-foreground truncate">
+              {draft.title}
+            </h3>
             <p className="text-xs text-muted-foreground mt-1">
               Last edited {new Date(draft.updatedAt).toLocaleDateString()}
             </p>
@@ -378,16 +453,26 @@ function MyDraftsSection({ userId }: { userId: number }) {
             <Button
               size="sm"
               variant="ghost"
-              onClick={() => navigate(`/articles/${draft.id}/edit`)}
+              onClick={() =>
+                navigate(
+                  draft.type === "news"
+                    ? "/admin/dashboard?tab=news"
+                    : `/articles/${draft.id}/edit`
+                )
+              }
               className="glitch-hover rounded-lg text-xs"
             >
               Edit
             </Button>
             <Button
               size="sm"
-              onClick={() => publishDraft.mutate({ id: draft.id })}
+              onClick={() =>
+                draft.type === "news"
+                  ? publishNewsDraft.mutate({ id: draft.id })
+                  : publishDraft.mutate({ id: draft.id })
+              }
               className="rounded-lg text-xs bg-primary hover:bg-primary/90 text-primary-foreground"
-              disabled={publishDraft.isPending}
+              disabled={publishDraft.isPending || publishNewsDraft.isPending}
             >
               Publish
             </Button>
@@ -396,12 +481,16 @@ function MyDraftsSection({ userId }: { userId: number }) {
               variant="ghost"
               onClick={() => {
                 if (confirm(`Delete draft "${draft.title}" permanently?`)) {
-                  deleteDraft.mutate({ id: draft.id });
+                  if (draft.type === "news") {
+                    deleteNewsDraft.mutate({ id: draft.id });
+                  } else {
+                    deleteDraft.mutate({ id: draft.id });
+                  }
                 }
               }}
               className="rounded-lg h-8 w-8 p-0 text-destructive hover:bg-destructive/10"
               title="Delete draft"
-              disabled={deleteDraft.isPending}
+              disabled={deleteDraft.isPending || deleteNewsDraft.isPending}
             >
               <Trash2 className="w-4 h-4" />
             </Button>
@@ -422,7 +511,7 @@ function DisplayNameEditor({ user }: { user: any }) {
       utils.auth.me.invalidate();
       setIsEditing(false);
     },
-    onError: (err) => toast.error(err.message),
+    onError: err => toast.error(err.message),
   });
 
   const handleSave = () => {
@@ -440,7 +529,7 @@ function DisplayNameEditor({ user }: { user: any }) {
           <div className="flex-1">
             <Input
               value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
+              onChange={e => setDisplayName(e.target.value)}
               placeholder="Enter your display name"
               className="rounded-lg bg-white/5 border-white/10 text-foreground placeholder:text-muted-foreground/50"
               maxLength={100}
@@ -474,7 +563,9 @@ function DisplayNameEditor({ user }: { user: any }) {
     <div className="flex items-center justify-between py-3 border-b border-white/5">
       <span className="text-sm text-muted-foreground">Display Name</span>
       <div className="flex items-center gap-3">
-        <span className="text-sm font-medium text-foreground">{user?.name || "—"}</span>
+        <span className="text-sm font-medium text-foreground">
+          {user?.name || "—"}
+        </span>
         <Button
           size="sm"
           variant="outline"
@@ -499,7 +590,7 @@ function ProfileDescriptionEditor({ user }: { user: any }) {
       utils.auth.me.invalidate();
       setIsEditing(false);
     },
-    onError: (err) => toast.error(err.message),
+    onError: err => toast.error(err.message),
   });
 
   const handleSave = () => {
@@ -510,12 +601,16 @@ function ProfileDescriptionEditor({ user }: { user: any }) {
     return (
       <div className="py-3 border-b border-white/5">
         <div className="mb-2 flex items-center justify-between">
-          <span className="text-sm text-muted-foreground">Profile Description</span>
-          <span className="text-xs text-muted-foreground">{profileBio.length}/800</span>
+          <span className="text-sm text-muted-foreground">
+            Profile Description
+          </span>
+          <span className="text-xs text-muted-foreground">
+            {profileBio.length}/800
+          </span>
         </div>
         <textarea
           value={profileBio}
-          onChange={(event) => setProfileBio(event.target.value)}
+          onChange={event => setProfileBio(event.target.value)}
           placeholder="Tell people a little about yourself..."
           rows={5}
           maxLength={800}
@@ -549,7 +644,9 @@ function ProfileDescriptionEditor({ user }: { user: any }) {
   return (
     <div className="py-3 border-b border-white/5">
       <div className="mb-2 flex items-center justify-between gap-3">
-        <span className="text-sm text-muted-foreground">Profile Description</span>
+        <span className="text-sm text-muted-foreground">
+          Profile Description
+        </span>
         <Button
           size="sm"
           variant="outline"
