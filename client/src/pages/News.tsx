@@ -45,6 +45,7 @@ type NewsArticleSummary = {
 };
 
 const NEWS_HERO_VIDEO_SRC = "/media/news-hero-smoke.mov";
+const RTSG_LOGO_SRC = "https://rs.rtsg.org/whiteandredrtsg_c075c4b3.png";
 
 function isNewsSubdomain() {
   if (typeof window === "undefined") return false;
@@ -128,11 +129,20 @@ function NewsMasthead({
     <header className="border-b border-[#3b0b16] bg-[#070607]">
       <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-4 sm:px-6 lg:px-8">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <Link href={newsHomeHref()}>
-            <span className="cursor-pointer font-serif text-3xl font-black leading-none tracking-normal text-[#f6f1ea] sm:text-5xl">
+          <a
+            href="https://rtsg.org"
+            className="group flex w-fit items-center gap-3"
+            aria-label="Return to RTSG.org"
+          >
+            <img
+              src={RTSG_LOGO_SRC}
+              alt="RTSG"
+              className="h-10 w-10 shrink-0 object-contain transition duration-300 group-hover:-translate-y-0.5 group-hover:rotate-[-3deg] group-hover:scale-110 group-hover:drop-shadow-[0_0_18px_rgba(179,19,43,0.5)] sm:h-14 sm:w-14"
+            />
+            <span className="font-serif text-3xl font-black leading-none tracking-normal text-[#f6f1ea] transition-colors group-hover:text-white sm:text-5xl">
               RTSG News<span className="text-[#b3132b]">★</span>
             </span>
-          </Link>
+          </a>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center lg:justify-end">
             <form onSubmit={handleSearch} className="relative w-full sm:w-72">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#f6f1ea]/45" />
@@ -262,8 +272,14 @@ function NewsHero() {
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_72%_28%,rgba(150,14,32,0.42),transparent_34%),linear-gradient(115deg,rgba(3,3,4,0.54),rgba(18,8,11,0.7)_46%,rgba(73,9,21,0.32))]" />
       <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,0.86),rgba(0,0,0,0.24)_52%,rgba(0,0,0,0.62))]" />
       <div className="absolute inset-x-0 bottom-0 px-4 pb-8 sm:px-6 sm:pb-10 lg:px-8">
-        <div className="mx-auto flex max-w-7xl justify-end">
-          <h1 className="animate-news-hero-title max-w-[12ch] text-right font-serif text-4xl font-black leading-[0.92] tracking-normal text-[#f6f1ea] drop-shadow-[0_8px_28px_rgba(0,0,0,0.72)] sm:text-6xl lg:text-7xl">
+        <div className="relative mx-auto flex max-w-7xl justify-end">
+          <img
+            src={RTSG_LOGO_SRC}
+            alt=""
+            aria-hidden="true"
+            className="pointer-events-none absolute -bottom-8 -right-10 z-0 h-44 w-44 object-contain opacity-[0.14] mix-blend-screen sm:-bottom-12 sm:-right-8 sm:h-72 sm:w-72 lg:-bottom-20 lg:h-120 lg:w-120"
+          />
+          <h1 className="animate-news-hero-title relative z-10 max-w-[12ch] text-right font-serif text-4xl font-black leading-[0.92] tracking-normal text-[#f6f1ea] drop-shadow-[0_8px_28px_rgba(0,0,0,0.72)] sm:text-6xl lg:text-7xl">
             Primus Inter Pares
           </h1>
         </div>

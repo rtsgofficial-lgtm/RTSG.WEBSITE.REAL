@@ -10,6 +10,7 @@ import {
   LogIn,
   LogOut,
   Menu,
+  Newspaper,
   PenLine,
   Shield,
   ShoppingBag,
@@ -41,6 +42,7 @@ const navItems = [
   { label: "About", href: "/about" },
   { label: "Contact", href: "/contact" },
   { label: "Resources", href: "/resources" },
+  { label: "News", href: "https://news.rtsg.org", external: true },
   { label: "World", href: "/globe" },
   { label: "Shop", href: "/shop" },
   { label: "Donate", href: "/donate" },
@@ -51,6 +53,12 @@ const mobileNavItems = [
   { label: "Articles", href: "/articles", icon: FileText },
   { label: "Write Article", href: "/articles/new", icon: PenLine },
   { label: "Resources", href: "/resources", icon: FileText },
+  {
+    label: "News",
+    href: "https://news.rtsg.org",
+    icon: Newspaper,
+    external: true,
+  },
   { label: "World", href: "/globe", icon: Globe2 },
   { label: "Shop", href: "/shop", icon: ShoppingBag },
   { label: "Donate", href: "/donate", icon: Heart },
@@ -127,11 +135,25 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const showNav = !isAdminPage && !isNewsPage;
 
   const isActive = (href: string) =>
-    location === href ||
-    (href === "/articles" && location.startsWith("/articles")) ||
-    (href === "/globe" && location.startsWith("/globe")) ||
-    (href === "/shop" && location.startsWith("/shop")) ||
-    (href === "/donate" && location.startsWith("/donate"));
+    !href.startsWith("http") &&
+    (location === href ||
+      (href === "/articles" && location.startsWith("/articles")) ||
+      (href === "/globe" && location.startsWith("/globe")) ||
+      (href === "/shop" && location.startsWith("/shop")) ||
+      (href === "/donate" && location.startsWith("/donate")));
+
+  const NavLink = ({
+    item,
+    children,
+  }: {
+    item: { href: string; external?: boolean };
+    children: React.ReactNode;
+  }) =>
+    item.external || item.href.startsWith("http") ? (
+      <a href={item.href}>{children}</a>
+    ) : (
+      <Link href={item.href}>{children}</Link>
+    );
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -153,7 +175,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             {/* Desktop Navigation Links */}
             <div className="hidden md:flex items-center gap-1">
               {navItems.map(item => (
-                <Link key={item.href} href={item.href}>
+                <NavLink key={item.href} item={item}>
                   <span
                     className={`glitch-hover px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
                       isActive(item.href)
@@ -163,7 +185,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   >
                     {item.label}
                   </span>
-                </Link>
+                </NavLink>
               ))}
             </div>
 
@@ -333,20 +355,26 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     <div className="space-y-1">
                       {mobileNavItems.map(item => {
                         const Icon = item.icon;
+                        const content = (
+                          <span
+                            className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-colors ${
+                              isActive(item.href)
+                                ? "bg-primary/15 text-primary"
+                                : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
+                            } ${item.href === "/donate" ? "nav-donate-glow" : ""}`}
+                          >
+                            <Icon className="w-4 h-4 shrink-0" />
+                            {item.label}
+                          </span>
+                        );
+
                         return (
                           <SheetClose key={item.href} asChild>
-                            <Link href={item.href}>
-                              <span
-                                className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-colors ${
-                                  isActive(item.href)
-                                    ? "bg-primary/15 text-primary"
-                                    : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
-                                } ${item.href === "/donate" ? "nav-donate-glow" : ""}`}
-                              >
-                                <Icon className="w-4 h-4 shrink-0" />
-                                {item.label}
-                              </span>
-                            </Link>
+                            {item.external || item.href.startsWith("http") ? (
+                              <a href={item.href}>{content}</a>
+                            ) : (
+                              <Link href={item.href}>{content}</Link>
+                            )}
                           </SheetClose>
                         );
                       })}
