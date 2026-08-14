@@ -39,7 +39,7 @@ export async function setupVite(app: Express, server: Server) {
         `src="/src/main.tsx"`,
         `src="/src/main.tsx?v=${nanoid()}"`
       );
-      template = await injectSeoMetadata(template, url);
+      template = await injectSeoMetadata(template, url, req);
       const page = await vite.transformIndexHtml(url, template);
       res.status(200).set({ "Content-Type": "text/html" }).end(page);
     } catch (e) {
@@ -64,7 +64,10 @@ export function serveStatic(app: Express) {
     express.static(distPath, {
       setHeaders: (res, filePath) => {
         if (filePath.includes(`${path.sep}globe${path.sep}`)) {
-          res.setHeader("Cache-Control", "public, max-age=604800, stale-while-revalidate=86400");
+          res.setHeader(
+            "Cache-Control",
+            "public, max-age=604800, stale-while-revalidate=86400"
+          );
         }
       },
     })
@@ -73,8 +76,11 @@ export function serveStatic(app: Express) {
   // fall through to index.html if the file doesn't exist
   app.use("*", async (req, res, next) => {
     try {
-      const template = await fs.promises.readFile(path.resolve(distPath, "index.html"), "utf-8");
-      const page = await injectSeoMetadata(template, req.originalUrl);
+      const template = await fs.promises.readFile(
+        path.resolve(distPath, "index.html"),
+        "utf-8"
+      );
+      const page = await injectSeoMetadata(template, req.originalUrl, req);
       res.status(200).set({ "Content-Type": "text/html" }).end(page);
     } catch (error) {
       next(error);

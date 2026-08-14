@@ -44,6 +44,8 @@ type NewsArticleSummary = {
   createdAt: string | Date;
 };
 
+const NEWS_HERO_VIDEO_SRC = "/media/news-hero-smoke.mov";
+
 function isNewsSubdomain() {
   if (typeof window === "undefined") return false;
   return window.location.hostname === "news.rtsg.org";
@@ -246,10 +248,26 @@ function NewsMasthead({
 function NewsHero() {
   return (
     <section className="relative min-h-[58vh] overflow-hidden border-b border-[#3b0b16] bg-black">
-      <div className="absolute inset-0 opacity-70">
-        <div className="h-full w-full bg-[radial-gradient(circle_at_72%_28%,rgba(150,14,32,0.62),transparent_34%),linear-gradient(115deg,rgba(3,3,4,0.98),rgba(18,8,11,0.88)_46%,rgba(73,9,21,0.42))]" />
-      </div>
+      <video
+        className="absolute inset-0 h-full w-full object-cover opacity-55"
+        autoPlay
+        muted
+        loop
+        playsInline
+        aria-hidden="true"
+      >
+        <source src={NEWS_HERO_VIDEO_SRC} type="video/quicktime" />
+        <source src={NEWS_HERO_VIDEO_SRC} type="video/mp4" />
+      </video>
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_72%_28%,rgba(150,14,32,0.42),transparent_34%),linear-gradient(115deg,rgba(3,3,4,0.54),rgba(18,8,11,0.7)_46%,rgba(73,9,21,0.32))]" />
       <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,0.86),rgba(0,0,0,0.24)_52%,rgba(0,0,0,0.62))]" />
+      <div className="absolute inset-x-0 bottom-0 px-4 pb-8 sm:px-6 sm:pb-10 lg:px-8">
+        <div className="mx-auto flex max-w-7xl justify-end">
+          <h1 className="animate-news-hero-title max-w-[12ch] text-right font-serif text-4xl font-black leading-[0.92] tracking-normal text-[#f6f1ea] drop-shadow-[0_8px_28px_rgba(0,0,0,0.72)] sm:text-6xl lg:text-7xl">
+            Primus Inter Pares
+          </h1>
+        </div>
+      </div>
     </section>
   );
 }

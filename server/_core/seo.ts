@@ -1,4 +1,4 @@
-import type { Express } from "express";
+import type { Express, Request } from "express";
 import {
   getArticleById,
   getArticles,
@@ -65,17 +65,33 @@ function truncate(value: string, maxLength: number) {
   return `${value.slice(0, maxLength - 1).trimEnd()}…`;
 }
 
-function absoluteUrl(value: string) {
+function isNewsHost(hostname: string) {
+  return hostname.toLowerCase() === "news.rtsg.org";
+}
+
+function getRequestOrigin(req?: Request) {
+  if (!req) return ENV.siteUrl;
+
+  const forwardedProto = req.headers["x-forwarded-proto"];
+  const protocol = Array.isArray(forwardedProto)
+    ? forwardedProto[0]
+    : forwardedProto?.split(",")[0] || req.protocol;
+  const host = req.get("host");
+
+  return host ? `${protocol}://${host}` : ENV.siteUrl;
+}
+
+function absoluteUrl(value: string, origin = ENV.siteUrl) {
   try {
-    return new URL(value, ENV.siteUrl).toString();
+    return new URL(value, origin).toString();
   } catch {
-    return ENV.siteUrl;
+    return origin;
   }
 }
 
-function canonicalForPath(pathname: string) {
+function canonicalForPath(pathname: string, origin = ENV.siteUrl) {
   const normalizedPath = pathname === "/" ? "/" : pathname.replace(/\/+$/, "");
-  return absoluteUrl(normalizedPath);
+  return absoluteUrl(normalizedPath, origin);
 }
 
 function toIsoDate(value: Date | string | null | undefined) {
@@ -131,9 +147,14 @@ async function getArticlePageMeta(pathname: string): Promise<PageMeta | null> {
 }
 
 async function getNewsArticlePageMeta(
-  pathname: string
+  pathname: string,
+  options: { subdomain?: boolean; origin?: string } = {}
 ): Promise<PageMeta | null> {
-  const match = pathname.match(/^\/news\/articles\/(\d+)(?:\/[^/]+)?\/?$/);
+  const match = pathname.match(
+    options.subdomain
+      ? /^\/articles\/(\d+)(?:\/[^/]+)?\/?$/
+      : /^\/news\/articles\/(\d+)(?:\/[^/]+)?\/?$/
+  );
   if (!match) return null;
 
   const articleId = Number(match[1]);
@@ -141,8 +162,16 @@ async function getNewsArticlePageMeta(
 
   const article = await getNewsArticleById(articleId);
   const canonicalUrl = article
-    ? canonicalForPath(createNewsArticlePath(article))
-    : canonicalForPath(`/news/articles/${articleId}`);
+    ? canonicalForPath(
+        createNewsArticlePath(article, { subdomain: options.subdomain }),
+        options.origin
+      )
+    : canonicalForPath(
+        options.subdomain
+          ? `/articles/${articleId}`
+          : `/news/articles/${articleId}`,
+        options.origin
+      );
 
   if (!article) {
     return {
@@ -169,7 +198,7 @@ async function getNewsArticlePageMeta(
     description,
     canonicalUrl,
     imageUrl: article.coverImageUrl
-      ? absoluteUrl(article.coverImageUrl)
+      ? absoluteUrl(article.coverImageUrl, options.origin)
       : DEFAULT_IMAGE,
     imageAlt: article.title,
     type: "article",
@@ -181,17 +210,26 @@ async function getNewsArticlePageMeta(
   };
 }
 
-async function getPageMeta(pathname: string): Promise<PageMeta> {
-  const newsArticleMeta = await getNewsArticlePageMeta(pathname);
+async function getPageMeta(
+  pathname: string,
+  options: { hostname?: string; origin?: string } = {}
+): Promise<PageMeta> {
+  const subdomain = isNewsHost(options.hostname ?? "");
+  const newsArticleMeta = await getNewsArticlePageMeta(pathname, {
+    subdomain,
+    origin: options.origin,
+  });
   if (newsArticleMeta) return newsArticleMeta;
 
-  const articleMeta = await getArticlePageMeta(pathname);
-  if (articleMeta) return articleMeta;
+  if (!subdomain) {
+    const articleMeta = await getArticlePageMeta(pathname);
+    if (articleMeta) return articleMeta;
+  }
 
   const baseMeta: PageMeta = {
     title: DEFAULT_TITLE,
     description: DEFAULT_DESCRIPTION,
-    canonicalUrl: canonicalForPath(pathname),
+    canonicalUrl: canonicalForPath(pathname, options.origin),
     imageUrl: DEFAULT_IMAGE,
     imageAlt: SITE_NAME,
     type: "website",
@@ -274,9 +312,17 @@ function buildMetaTags(meta: PageMeta) {
   return tags.join("\n    ");
 }
 
-export async function injectSeoMetadata(html: string, originalUrl: string) {
-  const requestUrl = new URL(originalUrl, ENV.siteUrl);
-  const meta = await getPageMeta(requestUrl.pathname);
+export async function injectSeoMetadata(
+  html: string,
+  originalUrl: string,
+  req?: Request
+) {
+  const origin = getRequestOrigin(req);
+  const requestUrl = new URL(originalUrl, origin);
+  const meta = await getPageMeta(requestUrl.pathname, {
+    hostname: requestUrl.hostname,
+    origin,
+  });
   const withoutExistingSeo = html
     .replace(/<title>[\s\S]*?<\/title>\s*/i, "")
     .replace(
