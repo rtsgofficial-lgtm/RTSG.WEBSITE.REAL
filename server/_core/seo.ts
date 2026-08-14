@@ -1,10 +1,17 @@
 import type { Express } from "express";
-import { getArticleById, getArticles } from "../db";
+import {
+  getArticleById,
+  getArticles,
+  getNewsArticleById,
+  getNewsArticles,
+} from "../db";
 import { ENV } from "./env";
+import { createNewsArticlePath } from "@shared/newsSlugs";
 
 const SITE_NAME = "RTSG";
 const DEFAULT_TITLE = "RTSG";
-const DEFAULT_DESCRIPTION = "RTSG is the preeminent thought-leader of the internet.";
+const DEFAULT_DESCRIPTION =
+  "RTSG is the preeminent thought-leader of the internet.";
 const DEFAULT_IMAGE = "https://rs.rtsg.org/whiteandredrtsg_c075c4b3.png";
 
 type PageMeta = {
@@ -36,10 +43,10 @@ function decodeCommonEntities(value: string) {
   return value
     .replace(/&nbsp;/gi, " ")
     .replace(/&amp;/gi, "&")
-    .replace(/&quot;/gi, "\"")
+    .replace(/&quot;/gi, '"')
     .replace(/&#39;/gi, "'")
     .replace(/&rsquo;/gi, "'")
-    .replace(/&ldquo;|&rdquo;/gi, "\"");
+    .replace(/&ldquo;|&rdquo;/gi, '"');
 }
 
 function textFromHtml(html: string) {
@@ -78,7 +85,7 @@ function toIsoDate(value: Date | string | null | undefined) {
 }
 
 async function getArticlePageMeta(pathname: string): Promise<PageMeta | null> {
-  const match = pathname.match(/^\/articles\/(\d+)\/?$/);
+  const match = pathname.match(/^\/articles\/(\d+)(?:\/[^/]+)?\/?$/);
   if (!match) return null;
 
   const articleId = Number(match[1]);
@@ -100,7 +107,9 @@ async function getArticlePageMeta(pathname: string): Promise<PageMeta | null> {
   }
 
   const description = truncate(
-    (article.excerpt && article.excerpt.trim()) || textFromHtml(article.content) || DEFAULT_DESCRIPTION,
+    (article.excerpt && article.excerpt.trim()) ||
+      textFromHtml(article.content) ||
+      DEFAULT_DESCRIPTION,
     180
   );
 
@@ -108,10 +117,64 @@ async function getArticlePageMeta(pathname: string): Promise<PageMeta | null> {
     title: `${article.title} | RTSG`,
     description,
     canonicalUrl,
-    imageUrl: article.coverImageUrl ? absoluteUrl(article.coverImageUrl) : DEFAULT_IMAGE,
+    imageUrl: article.coverImageUrl
+      ? absoluteUrl(article.coverImageUrl)
+      : DEFAULT_IMAGE,
     imageAlt: article.title,
     type: "article",
-    robots: "index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1",
+    robots:
+      "index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1",
+    publishedTime: article.createdAt,
+    modifiedTime: article.editedAt ?? article.updatedAt,
+    author: article.authorName,
+  };
+}
+
+async function getNewsArticlePageMeta(
+  pathname: string
+): Promise<PageMeta | null> {
+  const match = pathname.match(/^\/news\/articles\/(\d+)(?:\/[^/]+)?\/?$/);
+  if (!match) return null;
+
+  const articleId = Number(match[1]);
+  if (!Number.isFinite(articleId)) return null;
+
+  const article = await getNewsArticleById(articleId);
+  const canonicalUrl = article
+    ? canonicalForPath(createNewsArticlePath(article))
+    : canonicalForPath(`/news/articles/${articleId}`);
+
+  if (!article) {
+    return {
+      title: "News article not found | RTSG News",
+      description: "This RTSG News article is unavailable or has been removed.",
+      canonicalUrl,
+      imageUrl: DEFAULT_IMAGE,
+      imageAlt: SITE_NAME,
+      type: "website",
+      robots: "noindex, nofollow",
+    };
+  }
+
+  const description = truncate(
+    (article.subtitle && article.subtitle.trim()) ||
+      (article.excerpt && article.excerpt.trim()) ||
+      textFromHtml(article.content) ||
+      DEFAULT_DESCRIPTION,
+    180
+  );
+
+  return {
+    title: `${article.title} | RTSG News`,
+    description,
+    canonicalUrl,
+    imageUrl: article.coverImageUrl
+      ? absoluteUrl(article.coverImageUrl)
+      : DEFAULT_IMAGE,
+    imageAlt: article.title,
+    type: "article",
+    robots:
+      "index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1",
     publishedTime: article.createdAt,
     modifiedTime: article.editedAt ?? article.updatedAt,
     author: article.authorName,
@@ -119,6 +182,9 @@ async function getArticlePageMeta(pathname: string): Promise<PageMeta | null> {
 }
 
 async function getPageMeta(pathname: string): Promise<PageMeta> {
+  const newsArticleMeta = await getNewsArticlePageMeta(pathname);
+  if (newsArticleMeta) return newsArticleMeta;
+
   const articleMeta = await getArticlePageMeta(pathname);
   if (articleMeta) return articleMeta;
 
@@ -129,7 +195,8 @@ async function getPageMeta(pathname: string): Promise<PageMeta> {
     imageUrl: DEFAULT_IMAGE,
     imageAlt: SITE_NAME,
     type: "website",
-    robots: "index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1",
+    robots:
+      "index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1",
   };
 
   if (pathname === "/articles") {
@@ -144,7 +211,8 @@ async function getPageMeta(pathname: string): Promise<PageMeta> {
     return {
       ...baseMeta,
       title: "Resources | RTSG",
-      description: "Browse RTSG sources, research materials, and reference documents.",
+      description:
+        "Browse RTSG sources, research materials, and reference documents.",
     };
   }
 
@@ -190,9 +258,18 @@ function buildMetaTags(meta: PageMeta) {
     `<meta name="twitter:image" content="${escapeHtml(meta.imageUrl)}" />`,
   ];
 
-  if (publishedTime) tags.push(`<meta property="article:published_time" content="${publishedTime}" />`);
-  if (modifiedTime) tags.push(`<meta property="article:modified_time" content="${modifiedTime}" />`);
-  if (author) tags.push(`<meta property="article:author" content="${escapeHtml(author)}" />`);
+  if (publishedTime)
+    tags.push(
+      `<meta property="article:published_time" content="${publishedTime}" />`
+    );
+  if (modifiedTime)
+    tags.push(
+      `<meta property="article:modified_time" content="${modifiedTime}" />`
+    );
+  if (author)
+    tags.push(
+      `<meta property="article:author" content="${escapeHtml(author)}" />`
+    );
 
   return tags.join("\n    ");
 }
@@ -202,10 +279,16 @@ export async function injectSeoMetadata(html: string, originalUrl: string) {
   const meta = await getPageMeta(requestUrl.pathname);
   const withoutExistingSeo = html
     .replace(/<title>[\s\S]*?<\/title>\s*/i, "")
-    .replace(/\s*<meta\s+(?:name|property)="(?:description|robots|og:title|og:description|og:image|og:image:alt|og:url|og:type|og:site_name|twitter:card|twitter:title|twitter:description|twitter:image|article:published_time|article:modified_time|article:author)"[^>]*>\s*/gi, "")
+    .replace(
+      /\s*<meta\s+(?:name|property)="(?:description|robots|og:title|og:description|og:image|og:image:alt|og:url|og:type|og:site_name|twitter:card|twitter:title|twitter:description|twitter:image|article:published_time|article:modified_time|article:author)"[^>]*>\s*/gi,
+      ""
+    )
     .replace(/\s*<link\s+rel="canonical"[^>]*>\s*/gi, "");
 
-  return withoutExistingSeo.replace("</head>", `    ${buildMetaTags(meta)}\n  </head>`);
+  return withoutExistingSeo.replace(
+    "</head>",
+    `    ${buildMetaTags(meta)}\n  </head>`
+  );
 }
 
 export function registerSeoRoutes(app: Express) {
@@ -232,6 +315,7 @@ export function registerSeoRoutes(app: Express) {
 
   app.get("/sitemap.xml", async (_req, res) => {
     const articles = await getArticles(1000);
+    const newsArticles = await getNewsArticles({ limit: 1000 });
     const staticPages = [
       { path: "/", priority: "1.0", changefreq: "daily" },
       { path: "/articles", priority: "0.9", changefreq: "daily" },
@@ -252,7 +336,8 @@ export function registerSeoRoutes(app: Express) {
 
     const articleEntries = articles
       .map(article => {
-        const lastmod = toIsoDate(article.updatedAt) ?? toIsoDate(article.createdAt);
+        const lastmod =
+          toIsoDate(article.updatedAt) ?? toIsoDate(article.createdAt);
         return `  <url>
     <loc>${escapeXml(canonicalForPath(`/articles/${article.id}`))}</loc>${lastmod ? `\n    <lastmod>${lastmod}</lastmod>` : ""}
     <changefreq>monthly</changefreq>
@@ -261,11 +346,21 @@ export function registerSeoRoutes(app: Express) {
       })
       .join("\n");
 
-    res
-      .type("application/xml")
-      .send(`<?xml version="1.0" encoding="UTF-8"?>
+    const newsArticleEntries = newsArticles
+      .map(article => {
+        const lastmod =
+          toIsoDate(article.updatedAt) ?? toIsoDate(article.createdAt);
+        return `  <url>
+    <loc>${escapeXml(canonicalForPath(createNewsArticlePath(article)))}</loc>${lastmod ? `\n    <lastmod>${lastmod}</lastmod>` : ""}
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>`;
+      })
+      .join("\n");
+
+    res.type("application/xml").send(`<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-${[staticEntries, articleEntries].filter(Boolean).join("\n")}
+${[staticEntries, articleEntries, newsArticleEntries].filter(Boolean).join("\n")}
 </urlset>
 `);
   });

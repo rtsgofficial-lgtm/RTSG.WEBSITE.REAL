@@ -8,6 +8,7 @@ import {
   NEWS_CATEGORY_SLUGS,
   type NewsCategory,
 } from "@shared/newsCategories";
+import { createNewsArticlePath } from "@shared/newsSlugs";
 import {
   ArrowUpRight,
   Clock,
@@ -81,10 +82,8 @@ function searchHref(query: string) {
   return trimmed ? `${basePath}?q=${encodeURIComponent(trimmed)}` : basePath;
 }
 
-function articleHref(articleId: number) {
-  return isNewsSubdomain()
-    ? `/articles/${articleId}`
-    : `/news/articles/${articleId}`;
+function articleHref(article: Pick<NewsArticleSummary, "id" | "title">) {
+  return createNewsArticlePath(article, { subdomain: isNewsSubdomain() });
 }
 
 function ArticleImage({ src, title }: { src?: string | null; title: string }) {
@@ -267,7 +266,7 @@ function FeaturedSection({ article }: { article: NewsArticleSummary | null }) {
         {article && (
           <button
             type="button"
-            onClick={() => navigate(articleHref(article.id))}
+            onClick={() => navigate(articleHref(article))}
             className="flex items-center gap-1 text-xs font-black uppercase tracking-[0.12em] text-[#d9152f]"
           >
             Read <ArrowUpRight className="h-3.5 w-3.5" />
@@ -276,7 +275,7 @@ function FeaturedSection({ article }: { article: NewsArticleSummary | null }) {
       </div>
 
       {article ? (
-        <Link href={articleHref(article.id)}>
+        <Link href={articleHref(article)}>
           <article className="group grid cursor-pointer gap-5 md:grid-cols-[minmax(0,1.15fr)_minmax(18rem,0.85fr)]">
             <div className="aspect-[16/10] overflow-hidden border border-[#3b0b16] bg-black">
               <ArticleImage src={article.coverImageUrl} title={article.title} />
@@ -366,7 +365,7 @@ function NewsArticleGrid({
   return (
     <div className="grid gap-x-5 gap-y-8 md:grid-cols-3">
       {articles.map(article => (
-        <Link key={article.id} href={articleHref(article.id)}>
+        <Link key={article.id} href={articleHref(article)}>
           <article className="group cursor-pointer border-t-4 border-[#3b0b16] pt-3">
             <div className="mb-3 aspect-[16/10] overflow-hidden border border-[#3b0b16] bg-black">
               <ArticleImage src={article.coverImageUrl} title={article.title} />

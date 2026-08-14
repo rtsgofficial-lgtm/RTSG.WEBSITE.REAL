@@ -5,6 +5,7 @@ import {
   type EditableGlobeProfileField,
 } from "@shared/globeProfiles";
 import { NEWS_CATEGORIES, normalizeNewsCategory } from "@shared/newsCategories";
+import { createArticleSlug } from "@shared/newsSlugs";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import {
@@ -292,14 +293,16 @@ async function setSessionCookie(
 
 function createNewsArticleUrl(
   req: Parameters<typeof getRequestOrigin>[0],
-  articleId: number
+  articleId: number,
+  title: string
 ) {
   const origin = getRequestOrigin(req).replace(/\/+$/, "");
   const host = req.hostname.toLowerCase();
+  const slug = createArticleSlug(title);
   const path =
     host === "news.rtsg.org"
-      ? `/articles/${articleId}`
-      : `/news/articles/${articleId}`;
+      ? `/articles/${articleId}/${slug}`
+      : `/news/articles/${articleId}/${slug}`;
   return `${origin}${path}`;
 }
 
@@ -1254,7 +1257,11 @@ export const appRouter = router({
         if (input.isFeatured && status === "published") {
           await db.setFeaturedNewsArticle(articleId);
         }
-        const articleUrl = createNewsArticleUrl(ctx.req, articleId);
+        const articleUrl = createNewsArticleUrl(
+          ctx.req,
+          articleId,
+          input.title
+        );
 
         await logAdminAction(ctx, {
           action: "news.create",
@@ -1330,7 +1337,7 @@ export const appRouter = router({
         return {
           success: true,
           articleId: input.id,
-          articleUrl: createNewsArticleUrl(ctx.req, input.id),
+          articleUrl: createNewsArticleUrl(ctx.req, input.id, input.title),
           status,
         };
       }),
@@ -1355,7 +1362,7 @@ export const appRouter = router({
         return {
           success: true,
           articleId: input.id,
-          articleUrl: createNewsArticleUrl(ctx.req, input.id),
+          articleUrl: createNewsArticleUrl(ctx.req, input.id, article.title),
           status: "published" as const,
         };
       }),

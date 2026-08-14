@@ -52,6 +52,7 @@ function AdminRouter() {
       <Route path="/news" component={News} />
       <Route path="/news/search" component={NewsSearchPage} />
       <Route path="/news/preview" component={NewsArticlePreview} />
+      <Route path="/news/articles/:id/:slug" component={NewsArticleDetail} />
       <Route path="/news/articles/:id" component={NewsArticleDetail} />
       <Route path="/news/:categorySlug" component={NewsCategoryPage} />
       <Route path="/login" component={Login} />
@@ -88,6 +89,7 @@ function PublicRouter() {
       <Route path="/news" component={News} />
       <Route path="/news/search" component={NewsSearchPage} />
       <Route path="/news/preview" component={NewsArticlePreview} />
+      <Route path="/news/articles/:id/:slug" component={NewsArticleDetail} />
       <Route path="/news/articles/:id" component={NewsArticleDetail} />
       <Route path="/news/:categorySlug" component={NewsCategoryPage} />
       <Route path="/login" component={Login} />
@@ -123,6 +125,7 @@ function ConstructionRouter() {
       <Route path="/news" component={News} />
       <Route path="/news/search" component={NewsSearchPage} />
       <Route path="/news/preview" component={NewsArticlePreview} />
+      <Route path="/news/articles/:id/:slug" component={NewsArticleDetail} />
       <Route path="/news/articles/:id" component={NewsArticleDetail} />
       <Route path="/news/:categorySlug" component={NewsCategoryPage} />
       <Route path="/login" component={Login} />
@@ -148,6 +151,7 @@ function NewsSubdomainRouter() {
       <Route path="/" component={News} />
       <Route path="/search" component={NewsSearchPage} />
       <Route path="/preview" component={NewsArticlePreview} />
+      <Route path="/articles/:id/:slug" component={NewsArticleDetail} />
       <Route path="/articles/:id" component={NewsArticleDetail} />
       <Route path="/login" component={Login} />
       <Route path="/forgot-password" component={ForgotPassword} />

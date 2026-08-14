@@ -1,5 +1,6 @@
 import { trpc } from "@/lib/trpc";
 import NewsArticleView from "@/components/NewsArticleView";
+import { createNewsArticlePath } from "@shared/newsSlugs";
 import { useEffect } from "react";
 import { Link, useLocation, useRoute } from "wouter";
 
@@ -9,11 +10,16 @@ function isNewsSubdomain() {
 }
 
 export default function NewsArticleDetail() {
+  const [, paramsFromNewsSlugPath] = useRoute("/news/articles/:id/:slug");
   const [, paramsFromNewsPath] = useRoute("/news/articles/:id");
+  const [, paramsFromSubdomainSlugPath] = useRoute("/articles/:id/:slug");
   const [, paramsFromSubdomainPath] = useRoute("/articles/:id");
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
   const articleId = Number(
-    paramsFromNewsPath?.id ?? paramsFromSubdomainPath?.id
+    paramsFromNewsSlugPath?.id ??
+      paramsFromNewsPath?.id ??
+      paramsFromSubdomainSlugPath?.id ??
+      paramsFromSubdomainPath?.id
   );
   const newsHomeHref = isNewsSubdomain() ? "/" : "/news";
 
@@ -28,6 +34,19 @@ export default function NewsArticleDetail() {
       incrementView.mutate({ id: article.id });
     }
   }, [article?.id]);
+
+  useEffect(() => {
+    if (!article?.id || !article.title) return;
+
+    const canonicalPath = createNewsArticlePath(article, {
+      subdomain: isNewsSubdomain(),
+    });
+    const currentPath = location.split("?")[0].replace(/\/+$/, "");
+
+    if (currentPath !== canonicalPath) {
+      window.history.replaceState(null, "", canonicalPath);
+    }
+  }, [article?.id, article?.title, location]);
 
   if (isLoading) {
     return (
