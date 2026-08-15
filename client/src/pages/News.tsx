@@ -12,7 +12,6 @@ import { createNewsArticlePath } from "@shared/newsSlugs";
 import {
   ArrowUpRight,
   Clock,
-  Eye,
   LogIn,
   LogOut,
   PenLine,
@@ -40,7 +39,6 @@ type NewsArticleSummary = {
   tags: string[];
   status: "draft" | "published";
   authorName: string;
-  viewCount: number;
   createdAt: string | Date;
 };
 
@@ -277,7 +275,7 @@ function NewsHero() {
             src={RTSG_LOGO_SRC}
             alt=""
             aria-hidden="true"
-            className="pointer-events-none absolute -bottom-8 -right-10 z-0 h-44 w-44 object-contain opacity-[0.14] mix-blend-screen sm:-bottom-12 sm:-right-8 sm:h-72 sm:w-72 lg:-bottom-20 lg:h-120 lg:w-120"
+            className="pointer-events-none absolute left-1/2 top-1/2 z-0 h-72 w-72 -translate-x-1/2 -translate-y-1/2 object-contain opacity-35 mix-blend-screen sm:-bottom-12 sm:left-auto sm:right-[-2rem] sm:top-auto sm:h-72 sm:w-72 sm:translate-x-0 sm:translate-y-0 sm:opacity-[0.14] lg:-bottom-20 lg:h-120 lg:w-120"
           />
           <h1 className="animate-news-hero-title relative z-10 max-w-[12ch] text-right font-serif text-4xl font-black leading-[0.92] tracking-normal text-[#f6f1ea] drop-shadow-[0_8px_28px_rgba(0,0,0,0.72)] sm:text-6xl lg:text-7xl">
             Primus Inter Pares
@@ -358,10 +356,6 @@ function ArticleMeta({ article }: { article: NewsArticleSummary }) {
     <div className="flex flex-wrap gap-4 border-t border-[#3b0b16] pt-3 text-xs font-semibold uppercase tracking-[0.1em] text-[#f6f1ea]/50">
       <span>{article.authorName || "RTSG News"}</span>
       <span>{formatDate(article.createdAt)}</span>
-      <span className="inline-flex items-center gap-1">
-        <Eye className="h-3.5 w-3.5" />
-        {article.viewCount}
-      </span>
     </div>
   );
 }
@@ -429,7 +423,6 @@ function NewsArticleGrid({
             )}
             <div className="mt-4 flex items-center justify-between border-t border-[#3b0b16] pt-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#f6f1ea]/48">
               <span>{formatDate(article.createdAt)}</span>
-              <span>{article.viewCount} views</span>
             </div>
           </article>
         </Link>

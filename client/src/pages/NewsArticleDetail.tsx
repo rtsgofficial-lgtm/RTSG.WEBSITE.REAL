@@ -27,13 +27,6 @@ export default function NewsArticleDetail() {
     { id: articleId },
     { enabled: Number.isFinite(articleId) && articleId > 0 }
   );
-  const incrementView = trpc.news.incrementView.useMutation();
-
-  useEffect(() => {
-    if (article?.id) {
-      incrementView.mutate({ id: article.id });
-    }
-  }, [article?.id]);
 
   useEffect(() => {
     if (!article?.id || !article.title) return;

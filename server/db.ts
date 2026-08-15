@@ -1246,15 +1246,6 @@ export async function setFeaturedNewsArticle(articleId: number) {
     .where(eq(newsArticles.id, articleId));
 }
 
-export async function incrementNewsArticleViewCount(articleId: number) {
-  const db = await getDb();
-  if (!db) return;
-  await db
-    .update(newsArticles)
-    .set({ viewCount: sql`${newsArticles.viewCount} + 1` })
-    .where(eq(newsArticles.id, articleId));
-}
-
 export async function getArticlesByAuthor(authorId: number) {
   const db = await getDb();
   if (!db) return [];

@@ -1,4 +1,4 @@
-import { ArrowLeft, Clock, Eye } from "lucide-react";
+import { ArrowLeft, Clock } from "lucide-react";
 
 export type NewsArticleViewData = {
   id?: number;
@@ -13,7 +13,6 @@ export type NewsArticleViewData = {
   authorName?: string | null;
   authorXUrl?: string | null;
   createdAt?: string | Date | null;
-  viewCount?: number | null;
 };
 
 function formatDate(value?: string | Date | null) {
@@ -113,10 +112,6 @@ export default function NewsArticleView({
             <span className="inline-flex items-center gap-1">
               <Clock className="h-3.5 w-3.5" />
               {formatDate(article.createdAt)}
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <Eye className="h-3.5 w-3.5" />
-              {article.viewCount ?? 0}
             </span>
           </div>
         </div>

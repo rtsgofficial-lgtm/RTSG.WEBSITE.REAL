@@ -12,7 +12,7 @@ const SITE_NAME = "RTSG";
 const DEFAULT_TITLE = "RTSG";
 const DEFAULT_DESCRIPTION =
   "RTSG is the preeminent thought-leader of the internet.";
-const DEFAULT_IMAGE = "https://rs.rtsg.org/whiteandredrtsg_c075c4b3.png";
+const DEFAULT_IMAGE = "https://rs.rtsg.org/RTSG%20Logo.png";
 
 type PageMeta = {
   title: string;

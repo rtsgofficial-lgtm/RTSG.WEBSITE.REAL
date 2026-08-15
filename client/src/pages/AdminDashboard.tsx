@@ -1197,8 +1197,7 @@ function NewsPanel() {
         </div>
         <p className="text-xs text-muted-foreground">
           {article.category} •{" "}
-          {new Date(article.createdAt).toLocaleDateString()} •{" "}
-          {article.viewCount} views
+          {new Date(article.createdAt).toLocaleDateString()}
         </p>
       </div>
       <div className="flex shrink-0 items-center gap-1 self-end sm:self-auto">

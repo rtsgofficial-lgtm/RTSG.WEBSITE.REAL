@@ -1209,12 +1209,6 @@ export const appRouter = router({
           )) ?? null
         );
       }),
-    incrementView: publicProcedure
-      .input(z.object({ id: z.number().int().positive() }))
-      .mutation(async ({ input }) => {
-        await db.incrementNewsArticleViewCount(input.id);
-        return { success: true };
-      }),
     create: dashboardProcedure
       .input(
         z.object({
