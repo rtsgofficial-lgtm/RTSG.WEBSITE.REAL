@@ -1,7 +1,11 @@
 import { Button } from "@/components/ui/button";
+import {
+  TurnstileWidget,
+  type TurnstileWidgetHandle,
+} from "@/components/TurnstileWidget";
 import { trpc } from "@/lib/trpc";
 import { ArrowLeft, CreditCard, Heart, Loader2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Link } from "wouter";
 
@@ -15,6 +19,8 @@ export default function Donate() {
   const [customAmount, setCustomAmount] = useState("");
   const [isMonthly, setIsMonthly] = useState(false);
   const [isRedirecting, setIsRedirecting] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState("");
+  const turnstileRef = useRef<TurnstileWidgetHandle | null>(null);
 
   const amount = useMemo(() => {
     const parsedCustomAmount = Number(customAmount);
@@ -22,7 +28,7 @@ export default function Donate() {
   }, [customAmount, selectedAmount]);
 
   const createCheckout = trpc.donations.createCheckoutSession.useMutation({
-    onSuccess: (session) => {
+    onSuccess: session => {
       if (!session.url) {
         setIsRedirecting(false);
         toast.error("Stripe did not return a checkout link.");
@@ -31,8 +37,9 @@ export default function Donate() {
 
       window.location.assign(session.url);
     },
-    onError: (error) => {
+    onError: error => {
       setIsRedirecting(false);
+      turnstileRef.current?.reset();
       toast.error(error.message);
     },
   });
@@ -42,11 +49,16 @@ export default function Donate() {
       toast.error("Choose a donation amount between $1 and $10,000.");
       return;
     }
+    if (!turnstileToken) {
+      toast.error("Complete the security check before checkout.");
+      return;
+    }
 
     setIsRedirecting(true);
     createCheckout.mutate({
       amountCents: Math.round(amount * 100),
       isMonthly,
+      turnstileToken,
     });
   };
 
@@ -77,7 +89,10 @@ export default function Donate() {
       <div className="fixed inset-0 z-[1] pointer-events-none bg-black/66" />
 
       <div className="container relative z-[2] mx-auto max-w-4xl px-4 py-12 sm:py-16">
-        <Link href="/" className="mb-8 inline-flex items-center gap-2 text-sm text-white/54 hover:text-primary">
+        <Link
+          href="/"
+          className="mb-8 inline-flex items-center gap-2 text-sm text-white/54 hover:text-primary"
+        >
           <ArrowLeft className="h-4 w-4" />
           Back home
         </Link>
@@ -94,16 +109,20 @@ export default function Donate() {
                 Help keep RTSG independent.
               </h1>
               <p className="mt-5 max-w-xl text-sm leading-relaxed text-white/68 sm:text-base">
-                Your support helps fund RTSG writing, video production, research, and community projects.
+                Your support helps fund RTSG writing, video production,
+                research, and community projects.
               </p>
             </div>
 
             <div className="rounded-2xl border border-white/10 bg-white/[0.045] p-5">
-              <p className="text-xs uppercase tracking-[0.22em] text-white/42">Amount</p>
+              <p className="text-xs uppercase tracking-[0.22em] text-white/42">
+                Amount
+              </p>
 
               <div className="mt-4 grid grid-cols-2 gap-3">
-                {PRESET_AMOUNTS.map((presetAmount) => {
-                  const isSelected = !customAmount && selectedAmount === presetAmount;
+                {PRESET_AMOUNTS.map(presetAmount => {
+                  const isSelected =
+                    !customAmount && selectedAmount === presetAmount;
 
                   return (
                     <button
@@ -116,8 +135,12 @@ export default function Donate() {
                       className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-foreground transition hover:border-primary/40 hover:bg-primary/10"
                       data-selected={isSelected ? "true" : undefined}
                       style={{
-                        borderColor: isSelected ? "rgba(255, 0, 51, 0.55)" : undefined,
-                        background: isSelected ? "rgba(255, 0, 51, 0.14)" : undefined,
+                        borderColor: isSelected
+                          ? "rgba(255, 0, 51, 0.55)"
+                          : undefined,
+                        background: isSelected
+                          ? "rgba(255, 0, 51, 0.14)"
+                          : undefined,
                       }}
                     >
                       ${presetAmount}
@@ -131,14 +154,16 @@ export default function Donate() {
                   Custom Amount
                 </span>
                 <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm text-white/42">$</span>
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm text-white/42">
+                    $
+                  </span>
                   <input
                     type="number"
                     min="1"
                     max="10000"
                     step="1"
                     value={customAmount}
-                    onChange={(event) => setCustomAmount(event.target.value)}
+                    onChange={event => setCustomAmount(event.target.value)}
                     className="w-full rounded-xl border border-white/10 bg-white/5 py-3 pl-8 pr-4 text-sm text-foreground outline-none transition placeholder:text-white/32 focus:border-primary/50 focus:ring-1 focus:ring-primary/30"
                     placeholder="Enter another amount"
                   />
@@ -149,16 +174,25 @@ export default function Donate() {
                 <input
                   type="checkbox"
                   checked={isMonthly}
-                  onChange={(event) => setIsMonthly(event.target.checked)}
+                  onChange={event => setIsMonthly(event.target.checked)}
                   className="h-4 w-4 accent-primary"
                 />
                 <span>Make this a monthly donation</span>
               </label>
 
+              <TurnstileWidget
+                ref={turnstileRef}
+                action="donation_checkout"
+                onTokenChange={setTurnstileToken}
+                className="mt-5"
+              />
+
               <Button
                 type="button"
                 onClick={handleDonate}
-                disabled={isRedirecting || createCheckout.isPending}
+                disabled={
+                  isRedirecting || createCheckout.isPending || !turnstileToken
+                }
                 className="mt-6 w-full rounded-xl bg-primary py-5 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
               >
                 {isRedirecting || createCheckout.isPending ? (
@@ -183,7 +217,12 @@ export default function Donate() {
 
         <div className="mt-7 text-center text-sm text-white/54">
           Prefer Patreon?{" "}
-          <a href={PATREON_URL} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+          <a
+            href={PATREON_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary hover:underline"
+          >
             Support RTSG on Patreon
           </a>
         </div>

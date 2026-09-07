@@ -2,8 +2,12 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { useRoute, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  TurnstileWidget,
+  type TurnstileWidgetHandle,
+} from "@/components/TurnstileWidget";
 import { toast } from "sonner";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import RichTextEditor from "@/components/RichTextEditor";
@@ -28,6 +32,8 @@ export default function ArticleEdit() {
   const [content, setContent] = useState("");
   const [excerpt, setExcerpt] = useState("");
   const [coverImageUrl, setCoverImageUrl] = useState("");
+  const [turnstileToken, setTurnstileToken] = useState("");
+  const turnstileRef = useRef<TurnstileWidgetHandle | null>(null);
 
   const articleId = Number(params?.id);
   const { data: article, isLoading } = trpc.articles.getById.useQuery(
@@ -40,8 +46,10 @@ export default function ArticleEdit() {
       toast.success("Article updated successfully");
       navigate(`/articles/${articleId}`);
     },
-    onError: (err: any) =>
-      toast.error(err.message || "Failed to update article"),
+    onError: (err: any) => {
+      turnstileRef.current?.reset();
+      toast.error(err.message || "Failed to update article");
+    },
   });
 
   // Track whether we've initialized from the loaded article
@@ -113,12 +121,17 @@ export default function ArticleEdit() {
       toast.error("Title and content are required");
       return;
     }
+    if (!turnstileToken) {
+      toast.error("Complete the security check before continuing.");
+      return;
+    }
     updateArticle.mutate({
       id: articleId,
       title: title.trim(),
       content,
       excerpt: excerpt.trim() || undefined,
       coverImageUrl: coverImageUrl.trim() || undefined,
+      turnstileToken,
     });
   };
 
@@ -198,11 +211,17 @@ export default function ArticleEdit() {
             )}
           </div>
 
+          <TurnstileWidget
+            ref={turnstileRef}
+            action="article_update"
+            onTokenChange={setTurnstileToken}
+          />
+
           {/* Submit */}
           <div className="flex flex-col gap-3 sm:flex-row">
             <Button
               type="submit"
-              disabled={updateArticle.isPending}
+              disabled={updateArticle.isPending || !turnstileToken}
               className="w-full rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground gap-2 sm:w-auto"
             >
               {updateArticle.isPending ? (

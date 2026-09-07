@@ -1,6 +1,16 @@
 import { trpc } from "@/lib/trpc";
-import { ArrowLeft, ArrowUpRight, ChevronDown, Loader2, ShoppingBag } from "lucide-react";
-import { useMemo, useState, type PointerEvent } from "react";
+import {
+  TurnstileWidget,
+  type TurnstileWidgetHandle,
+} from "@/components/TurnstileWidget";
+import {
+  ArrowLeft,
+  ArrowUpRight,
+  ChevronDown,
+  Loader2,
+  ShoppingBag,
+} from "lucide-react";
+import { useMemo, useRef, useState, type PointerEvent } from "react";
 import { toast } from "sonner";
 import { Link, useRoute } from "wouter";
 
@@ -14,27 +24,42 @@ export default function ShopProduct() {
     { productId },
     { enabled: Boolean(productId) }
   );
-  const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
+  const [selectedVariantId, setSelectedVariantId] = useState<string | null>(
+    null
+  );
   const [activeImageUrl, setActiveImageUrl] = useState<string | null>(null);
   const [isRedirecting, setIsRedirecting] = useState(false);
   const [mockupsExpanded, setMockupsExpanded] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState("");
+  const turnstileRef = useRef<TurnstileWidgetHandle | null>(null);
 
   const selectedVariant = useMemo(() => {
     if (!product) return null;
-    return product.variants.find((variant) => variant.id === (selectedVariantId ?? product.variants[0]?.id)) ?? null;
+    return (
+      product.variants.find(
+        variant => variant.id === (selectedVariantId ?? product.variants[0]?.id)
+      ) ?? null
+    );
   }, [product, selectedVariantId]);
 
-  const selectedImageUrl = activeImageUrl ?? selectedVariant?.mockupImageUrl ?? product?.images[0]?.url ?? "";
-  const detailLines = product?.details
-    .split("\n")
-    .map((line) => {
-      const cleaned = line.replace(/^[-•]\s*/, "").trim();
-      return cleaned === "Blank product sourced from Vietnam or Bangladesh" ? "Made in Vietnam/Bangladesh" : cleaned;
-    })
-    .filter(Boolean) ?? [];
+  const selectedImageUrl =
+    activeImageUrl ??
+    selectedVariant?.mockupImageUrl ??
+    product?.images[0]?.url ??
+    "";
+  const detailLines =
+    product?.details
+      .split("\n")
+      .map(line => {
+        const cleaned = line.replace(/^[-•]\s*/, "").trim();
+        return cleaned === "Blank product sourced from Vietnam or Bangladesh"
+          ? "Made in Vietnam/Bangladesh"
+          : cleaned;
+      })
+      .filter(Boolean) ?? [];
 
   const createCheckout = trpc.shop.createCheckoutSession.useMutation({
-    onSuccess: (session) => {
+    onSuccess: session => {
       if (!session.url) {
         setIsRedirecting(false);
         toast.error("Stripe did not return a checkout link.");
@@ -43,8 +68,9 @@ export default function ShopProduct() {
 
       window.location.assign(session.url);
     },
-    onError: (error) => {
+    onError: error => {
       setIsRedirecting(false);
+      turnstileRef.current?.reset();
       toast.error(error.message);
     },
   });
@@ -54,9 +80,17 @@ export default function ShopProduct() {
       toast.error("Choose an option before checkout.");
       return;
     }
+    if (!turnstileToken) {
+      toast.error("Complete the security check before checkout.");
+      return;
+    }
 
     setIsRedirecting(true);
-    createCheckout.mutate({ productId: product.id, variantId: selectedVariant.id });
+    createCheckout.mutate({
+      productId: product.id,
+      variantId: selectedVariant.id,
+      turnstileToken,
+    });
   };
 
   const handleGalleryTilt = (event: PointerEvent<HTMLElement>) => {
@@ -91,11 +125,16 @@ export default function ShopProduct() {
   if (!product) {
     return (
       <div className="container mx-auto max-w-3xl py-16">
-        <Link href="/shop" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-primary">
+        <Link
+          href="/shop"
+          className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-primary"
+        >
           <ArrowLeft className="h-4 w-4" />
           Back to shop
         </Link>
-        <h1 className="mt-8 text-3xl font-bold text-foreground">Product not found</h1>
+        <h1 className="mt-8 text-3xl font-bold text-foreground">
+          Product not found
+        </h1>
       </div>
     );
   }
@@ -126,7 +165,10 @@ export default function ShopProduct() {
       <div className="fixed inset-0 z-[1] pointer-events-none bg-black/58" />
 
       <div className="container relative z-[2] mx-auto max-w-6xl py-10 sm:py-14">
-        <Link href="/shop" className="mb-8 inline-flex items-center gap-2 text-sm text-white/54 hover:text-primary">
+        <Link
+          href="/shop"
+          className="mb-8 inline-flex items-center gap-2 text-sm text-white/54 hover:text-primary"
+        >
           <ArrowLeft className="h-4 w-4" />
           Back to shop
         </Link>
@@ -138,13 +180,16 @@ export default function ShopProduct() {
             onPointerLeave={resetGalleryTilt}
           >
             <div className="shop-detail-hero-image">
-              <img src={selectedImageUrl} alt={`${product.name} ${selectedVariant?.name ?? ""}`} />
+              <img
+                src={selectedImageUrl}
+                alt={`${product.name} ${selectedVariant?.name ?? ""}`}
+              />
             </div>
             <div className="shop-detail-mockups">
               <button
                 type="button"
                 className="shop-detail-mockups-toggle"
-                onClick={() => setMockupsExpanded((current) => !current)}
+                onClick={() => setMockupsExpanded(current => !current)}
                 aria-expanded={mockupsExpanded}
               >
                 <span>Mockups</span>
@@ -152,15 +197,24 @@ export default function ShopProduct() {
               </button>
               {mockupsExpanded && (
                 <div className="shop-detail-thumbs">
-                  {product.images.map((image) => (
+                  {product.images.map(image => (
                     <button
                       key={image.id}
                       type="button"
                       className="shop-detail-thumb"
-                      data-selected={selectedImageUrl === image.url ? "true" : undefined}
+                      data-selected={
+                        selectedImageUrl === image.url ? "true" : undefined
+                      }
                       onClick={() => {
-                        const selectedVariantHasImage = selectedVariant?.images.some((item) => item.url === image.url);
-                        setSelectedVariantId(selectedVariantHasImage ? selectedVariant?.id ?? image.variantId : image.variantId);
+                        const selectedVariantHasImage =
+                          selectedVariant?.images.some(
+                            item => item.url === image.url
+                          );
+                        setSelectedVariantId(
+                          selectedVariantHasImage
+                            ? (selectedVariant?.id ?? image.variantId)
+                            : image.variantId
+                        );
                         setActiveImageUrl(image.url);
                       }}
                       aria-label={image.label}
@@ -180,16 +234,24 @@ export default function ShopProduct() {
             </div>
 
             <div>
-              <h1 className="mt-6 text-4xl font-bold leading-none text-foreground sm:text-6xl">{product.name}</h1>
-              <p className="mt-4 text-lg font-normal text-white">{selectedVariant?.price ?? product.price}</p>
+              <h1 className="mt-6 text-4xl font-bold leading-none text-foreground sm:text-6xl">
+                {product.name}
+              </h1>
+              <p className="mt-4 text-lg font-normal text-white">
+                {selectedVariant?.price ?? product.price}
+              </p>
             </div>
 
-            <p className="text-sm leading-relaxed text-white/64 sm:text-base">{product.description}</p>
+            <p className="text-sm leading-relaxed text-white/64 sm:text-base">
+              {product.description}
+            </p>
 
             <div>
-              <p className="mb-3 text-xs uppercase tracking-[0.22em] text-white/42">{product.optionLabel}</p>
+              <p className="mb-3 text-xs uppercase tracking-[0.22em] text-white/42">
+                {product.optionLabel}
+              </p>
               <div className="shop-product-variants">
-                {product.variants.map((variant) => {
+                {product.variants.map(variant => {
                   const isSelected = selectedVariant?.id === variant.id;
 
                   return (
@@ -212,9 +274,11 @@ export default function ShopProduct() {
 
             {detailLines.length > 0 && (
               <div className="shop-detail-details">
-                <p className="mb-3 text-xs uppercase tracking-[0.22em] text-white/42">Details</p>
+                <p className="mb-3 text-xs uppercase tracking-[0.22em] text-white/42">
+                  Details
+                </p>
                 <ul>
-                  {detailLines.map((line) => (
+                  {detailLines.map(line => (
                     <li key={line}>{line}</li>
                   ))}
                 </ul>
@@ -225,11 +289,22 @@ export default function ShopProduct() {
               type="button"
               className="shop-detail-checkout"
               onClick={handleCheckout}
-              disabled={isRedirecting || createCheckout.isPending}
+              disabled={
+                isRedirecting || createCheckout.isPending || !turnstileToken
+              }
             >
               {isRedirecting ? "Opening checkout" : "Checkout"}
-              {isRedirecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUpRight className="h-4 w-4" />}
+              {isRedirecting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <ArrowUpRight className="h-4 w-4" />
+              )}
             </button>
+            <TurnstileWidget
+              ref={turnstileRef}
+              action="shop_checkout"
+              onTokenChange={setTurnstileToken}
+            />
           </section>
         </div>
       </div>

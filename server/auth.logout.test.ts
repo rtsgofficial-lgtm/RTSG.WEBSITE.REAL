@@ -28,6 +28,7 @@ function createAuthContext(): { ctx: TrpcContext; clearedCookies: CookieCall[] }
   const ctx: TrpcContext = {
     user,
     req: {
+      hostname: "rtsg.org",
       protocol: "https",
       headers: {},
     } as TrpcContext["req"],
@@ -54,9 +55,10 @@ describe("auth.logout", () => {
     expect(clearedCookies[0]?.options).toMatchObject({
       maxAge: -1,
       secure: true,
-      sameSite: "none",
+      sameSite: "lax",
       httpOnly: true,
       path: "/",
+      domain: ".rtsg.org",
     });
   });
 });

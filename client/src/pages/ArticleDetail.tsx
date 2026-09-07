@@ -20,7 +20,10 @@ import {
 } from "lucide-react";
 import { getLoginUrl } from "@/const";
 import { trpc } from "@/lib/trpc";
-
+import {
+  TurnstileWidget,
+  type TurnstileWidgetHandle,
+} from "@/components/TurnstileWidget";
 
 export default function ArticleDetail() {
   const [, params] = useRoute("/articles/:id");
@@ -29,17 +32,20 @@ export default function ArticleDetail() {
 
   const [commentText, setCommentText] = useState("");
   const [commentCursor, setCommentCursor] = useState(0);
+  const [turnstileToken, setTurnstileToken] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const turnstileRef = useRef<TurnstileWidgetHandle | null>(null);
 
   const articleId = Number(params?.id);
   const { data: article, isLoading } = trpc.articles.getById.useQuery(
     { id: articleId },
     { enabled: !!articleId }
   );
-  const { data: commentsData, refetch: refetchComments } = trpc.comments.listByArticle.useQuery(
-    { articleId },
-    { enabled: !!articleId }
-  );
+  const { data: commentsData, refetch: refetchComments } =
+    trpc.comments.listByArticle.useQuery(
+      { articleId },
+      { enabled: !!articleId }
+    );
 
   const utils = trpc.useUtils();
   const incrementView = trpc.articles.incrementView.useMutation();
@@ -65,10 +71,14 @@ export default function ArticleDetail() {
   const addComment = trpc.comments.create.useMutation({
     onSuccess: () => {
       setCommentText("");
+      turnstileRef.current?.reset();
       refetchComments();
       toast.success("Comment posted");
     },
-    onError: (err: any) => toast.error(err.message),
+    onError: (err: any) => {
+      turnstileRef.current?.reset();
+      toast.error(err.message);
+    },
   });
 
   const deleteComment = trpc.comments.delete.useMutation({
@@ -117,9 +127,16 @@ export default function ArticleDetail() {
     return (
       <div className="container max-w-3xl mx-auto py-12 text-center">
         <div className="glass rounded-2xl p-12">
-          <h2 className="text-xl font-bold text-foreground mb-2">Article not found</h2>
-          <p className="text-muted-foreground mb-6">This article may have been removed.</p>
-          <Button onClick={() => navigate("/articles")} className="rounded-xl bg-primary text-primary-foreground">
+          <h2 className="text-xl font-bold text-foreground mb-2">
+            Article not found
+          </h2>
+          <p className="text-muted-foreground mb-6">
+            This article may have been removed.
+          </p>
+          <Button
+            onClick={() => navigate("/articles")}
+            className="rounded-xl bg-primary text-primary-foreground"
+          >
             Back to Articles
           </Button>
         </div>
@@ -130,7 +147,15 @@ export default function ArticleDetail() {
   const handleCommentSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!commentText.trim()) return;
-    addComment.mutate({ content: commentText.trim(), articleId });
+    if (!turnstileToken) {
+      toast.error("Complete the security check before posting.");
+      return;
+    }
+    addComment.mutate({
+      content: commentText.trim(),
+      articleId,
+      turnstileToken,
+    });
   };
 
   const insertMention = (handle: string) => {
@@ -160,7 +185,10 @@ export default function ArticleDetail() {
     return parts.map((part, index) => {
       if (/^@[a-z0-9][a-z0-9_-]{1,31}$/i.test(part)) {
         return (
-          <span key={`${part}-${index}`} className="rounded-md bg-primary/10 px-1 py-0.5 font-medium text-primary">
+          <span
+            key={`${part}-${index}`}
+            className="rounded-md bg-primary/10 px-1 py-0.5 font-medium text-primary"
+          >
             {part}
           </span>
         );
@@ -188,7 +216,8 @@ export default function ArticleDetail() {
     return null;
   };
 
-  const canEditArticle = user?.id === article.authorId || user?.role === "admin";
+  const canEditArticle =
+    user?.id === article.authorId || user?.role === "admin";
   const shouldShowOwnerDelete = user?.id === article.authorId && !isMod;
 
   return (
@@ -208,7 +237,11 @@ export default function ArticleDetail() {
           {/* Cover Image */}
           {article.coverImageUrl && (
             <div className="w-full h-64 overflow-hidden">
-              <img src={article.coverImageUrl} alt="" className="w-full h-full object-cover" />
+              <img
+                src={article.coverImageUrl}
+                alt=""
+                className="w-full h-full object-cover"
+              />
             </div>
           )}
 
@@ -230,7 +263,9 @@ export default function ArticleDetail() {
             </div>
 
             {/* Title */}
-            <h1 className="text-3xl font-bold text-foreground mb-4">{article.title}</h1>
+            <h1 className="text-3xl font-bold text-foreground mb-4">
+              {article.title}
+            </h1>
 
             {/* Meta */}
             <div className="flex items-center gap-4 text-sm text-muted-foreground mb-6 pb-6 border-b border-white/5">
@@ -240,7 +275,11 @@ export default function ArticleDetail() {
                 className="flex items-center gap-1.5 transition-colors hover:text-primary"
               >
                 {article.authorAvatar ? (
-                  <img src={article.authorAvatar} alt="" className="w-5 h-5 rounded-full object-cover" />
+                  <img
+                    src={article.authorAvatar}
+                    alt=""
+                    className="w-5 h-5 rounded-full object-cover"
+                  />
                 ) : (
                   <User className="w-4 h-4" />
                 )}
@@ -261,7 +300,8 @@ export default function ArticleDetail() {
               </span>
               {article.editedAt && (
                 <span className="flex items-center gap-1 text-xs text-muted-foreground/70">
-                  · Edited {new Date(article.editedAt).toLocaleDateString("en-US", {
+                  · Edited{" "}
+                  {new Date(article.editedAt).toLocaleDateString("en-US", {
                     year: "numeric",
                     month: "long",
                     day: "numeric",
@@ -313,7 +353,12 @@ export default function ArticleDetail() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => togglePin.mutate({ id: articleId, isPinned: !article.isPinned })}
+                  onClick={() =>
+                    togglePin.mutate({
+                      id: articleId,
+                      isPinned: !article.isPinned,
+                    })
+                  }
                   className="glitch-hover rounded-lg text-xs gap-1 text-muted-foreground hover:text-foreground"
                 >
                   <Pin className="w-3.5 h-3.5" />
@@ -322,7 +367,12 @@ export default function ArticleDetail() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => toggleLock.mutate({ id: articleId, isLocked: !article.isLocked })}
+                  onClick={() =>
+                    toggleLock.mutate({
+                      id: articleId,
+                      isLocked: !article.isLocked,
+                    })
+                  }
                   className="glitch-hover rounded-lg text-xs gap-1 text-muted-foreground hover:text-foreground"
                 >
                   <Lock className="w-3.5 h-3.5" />
@@ -361,58 +411,84 @@ export default function ArticleDetail() {
                 Your account is muted and cannot post comments.
               </div>
             ) : (
-              <form onSubmit={handleCommentSubmit} className="glass rounded-xl p-4 mb-6">
+              <form
+                onSubmit={handleCommentSubmit}
+                className="glass rounded-xl p-4 mb-6"
+              >
                 <div className="relative">
                   <textarea
                     ref={textareaRef}
                     value={commentText}
-                    onChange={(e) => {
+                    onChange={e => {
                       setCommentText(e.target.value);
                       setCommentCursor(e.target.selectionStart);
                     }}
-                    onClick={(e) => setCommentCursor(e.currentTarget.selectionStart)}
-                    onKeyUp={(e) => setCommentCursor(e.currentTarget.selectionStart)}
-                    onSelect={(e) => setCommentCursor(e.currentTarget.selectionStart)}
+                    onClick={e =>
+                      setCommentCursor(e.currentTarget.selectionStart)
+                    }
+                    onKeyUp={e =>
+                      setCommentCursor(e.currentTarget.selectionStart)
+                    }
+                    onSelect={e =>
+                      setCommentCursor(e.currentTarget.selectionStart)
+                    }
                     placeholder="Write a comment... use @name to tag someone"
                     rows={3}
                     className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30 transition-all resize-none text-sm"
                   />
-                  {activeMentionQuery !== null && mentionCandidatesQuery.data && mentionCandidatesQuery.data.length > 0 && (
-                    <div className="absolute left-0 right-0 top-full z-20 mt-2 overflow-hidden rounded-xl border border-white/10 bg-black/95 shadow-2xl backdrop-blur-xl">
-                      {mentionCandidatesQuery.data.map((candidate) => (
-                        <button
-                          key={candidate.id}
-                          type="button"
-                          onClick={() => insertMention(candidate.handle)}
-                          className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-white/5"
-                        >
-                          {candidate.avatarUrl ? (
-                            <img src={candidate.avatarUrl} alt="" className="h-7 w-7 rounded-full object-cover" />
-                          ) : (
-                            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/15">
-                              <User className="h-3.5 w-3.5 text-primary" />
+                  {activeMentionQuery !== null &&
+                    mentionCandidatesQuery.data &&
+                    mentionCandidatesQuery.data.length > 0 && (
+                      <div className="absolute left-0 right-0 top-full z-20 mt-2 overflow-hidden rounded-xl border border-white/10 bg-black/95 shadow-2xl backdrop-blur-xl">
+                        {mentionCandidatesQuery.data.map(candidate => (
+                          <button
+                            key={candidate.id}
+                            type="button"
+                            onClick={() => insertMention(candidate.handle)}
+                            className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-white/5"
+                          >
+                            {candidate.avatarUrl ? (
+                              <img
+                                src={candidate.avatarUrl}
+                                alt=""
+                                className="h-7 w-7 rounded-full object-cover"
+                              />
+                            ) : (
+                              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/15">
+                                <User className="h-3.5 w-3.5 text-primary" />
+                              </span>
+                            )}
+                            <span className="min-w-0">
+                              <span className="block truncate text-sm font-medium text-foreground">
+                                {candidate.name}
+                              </span>
+                              <span className="block truncate text-xs text-muted-foreground">
+                                @{candidate.handle}
+                              </span>
                             </span>
-                          )}
-                          <span className="min-w-0">
-                            <span className="block truncate text-sm font-medium text-foreground">
-                              {candidate.name}
-                            </span>
-                            <span className="block truncate text-xs text-muted-foreground">
-                              @{candidate.handle}
-                            </span>
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                 </div>
                 <p className="mt-2 text-xs text-muted-foreground">
-                  Tag people with their handle, like <span className="text-primary">@username</span>.
+                  Tag people with their handle, like{" "}
+                  <span className="text-primary">@username</span>.
                 </p>
+                <TurnstileWidget
+                  ref={turnstileRef}
+                  action="comment_create"
+                  onTokenChange={setTurnstileToken}
+                  className="mt-3"
+                />
                 <div className="flex justify-end mt-3">
                   <Button
                     type="submit"
-                    disabled={addComment.isPending || !commentText.trim()}
+                    disabled={
+                      addComment.isPending ||
+                      !commentText.trim() ||
+                      !turnstileToken
+                    }
                     size="sm"
                     className="rounded-lg gap-1.5 bg-primary hover:bg-primary/90 text-primary-foreground"
                   >
@@ -429,7 +505,10 @@ export default function ArticleDetail() {
             </div>
           ) : (
             <div className="glass rounded-xl p-4 mb-6 text-center text-sm text-muted-foreground">
-              <a href={getLoginUrl()} className="glitch-hover text-primary hover:underline">
+              <a
+                href={getLoginUrl()}
+                className="glitch-hover text-primary hover:underline"
+              >
                 Sign in
               </a>{" "}
               to leave a comment.

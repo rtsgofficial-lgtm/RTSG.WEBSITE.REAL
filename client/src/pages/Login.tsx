@@ -1,7 +1,11 @@
 import { Button } from "@/components/ui/button";
+import {
+  TurnstileWidget,
+  type TurnstileWidgetHandle,
+} from "@/components/TurnstileWidget";
 import { trpc } from "@/lib/trpc";
 import { Lock, Mail, User } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
@@ -13,6 +17,8 @@ export default function Login() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [turnstileToken, setTurnstileToken] = useState("");
+  const turnstileRef = useRef<TurnstileWidgetHandle | null>(null);
 
   const login = trpc.auth.login.useMutation({
     onSuccess: async () => {
@@ -20,7 +26,10 @@ export default function Login() {
       toast.success("Signed in successfully.");
       navigate("/");
     },
-    onError: (err) => toast.error(err.message),
+    onError: err => {
+      turnstileRef.current?.reset();
+      toast.error(err.message);
+    },
   });
 
   const register = trpc.auth.register.useMutation({
@@ -29,18 +38,25 @@ export default function Login() {
       toast.success("Account created.");
       navigate("/");
     },
-    onError: (err) => toast.error(err.message),
+    onError: err => {
+      turnstileRef.current?.reset();
+      toast.error(err.message);
+    },
   });
 
   const isPending = login.isPending || register.isPending;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!turnstileToken) {
+      toast.error("Complete the security check before continuing.");
+      return;
+    }
 
     if (mode === "register") {
-      register.mutate({ name, email, password });
+      register.mutate({ name, email, password, turnstileToken });
     } else {
-      login.mutate({ email, password });
+      login.mutate({ email, password, turnstileToken });
     }
   };
 
@@ -74,7 +90,7 @@ export default function Login() {
                 <input
                   type="text"
                   value={name}
-                  onChange={(e) => setName(e.target.value)}
+                  onChange={e => setName(e.target.value)}
                   required={mode === "register"}
                   minLength={1}
                   maxLength={100}
@@ -94,7 +110,7 @@ export default function Login() {
               <input
                 type="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={e => setEmail(e.target.value)}
                 required
                 className="w-full pl-10 pr-4 py-3 rounded-xl bg-white/5 border border-white/10 text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30 transition-all"
                 placeholder="you@example.com"
@@ -111,7 +127,7 @@ export default function Login() {
               <input
                 type="password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={e => setPassword(e.target.value)}
                 required
                 minLength={mode === "register" ? 8 : 1}
                 className="w-full pl-10 pr-4 py-3 rounded-xl bg-white/5 border border-white/10 text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30 transition-all"
@@ -128,16 +144,23 @@ export default function Login() {
             )}
           </div>
 
+          <TurnstileWidget
+            key={mode}
+            ref={turnstileRef}
+            action={mode === "register" ? "register" : "login"}
+            onTokenChange={setTurnstileToken}
+          />
+
           <Button
             type="submit"
-            disabled={isPending}
+            disabled={isPending || !turnstileToken}
             className="w-full rounded-xl py-5 gap-2 bg-primary hover:bg-primary/90 text-primary-foreground font-medium transition-transform duration-150 active:scale-[0.97] mt-6"
           >
             {isPending
               ? "Processing..."
               : mode === "login"
-              ? "Sign In"
-              : "Create Account"}
+                ? "Sign In"
+                : "Create Account"}
           </Button>
         </form>
 
@@ -146,6 +169,7 @@ export default function Login() {
           onClick={() => {
             setMode(mode === "login" ? "register" : "login");
             setPassword("");
+            turnstileRef.current?.reset();
           }}
           className="glitch-hover w-full text-center text-sm text-muted-foreground hover:text-foreground mt-6 transition-colors"
         >

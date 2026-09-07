@@ -60,6 +60,7 @@ const newsTagsSchema = z
   .max(12)
   .optional()
   .default([]);
+const turnstileTokenSchema = z.string().min(1).max(2048);
 
 function getWorldProfileSettingKey(
   profileId: string,
@@ -269,6 +270,100 @@ function normalizeNewsAuthorXUrl(authorXUrl?: string | null) {
     return url.toString().slice(0, 512);
   } catch {
     return null;
+  }
+}
+
+function getExpectedTurnstileHostnames() {
+  const configured = (process.env.TURNSTILE_HOSTNAMES ?? "")
+    .split(",")
+    .map(hostname => hostname.trim().toLowerCase())
+    .filter(Boolean);
+  const hostnames = new Set(
+    configured.length > 0
+      ? configured
+      : ["rtsg.org", "www.rtsg.org", "news.rtsg.org"]
+  );
+
+  if (!ENV.isProduction) {
+    hostnames.add("localhost");
+    hostnames.add("127.0.0.1");
+  } else {
+    hostnames.delete("localhost");
+    hostnames.delete("127.0.0.1");
+  }
+
+  return hostnames;
+}
+
+async function verifyTurnstileToken(
+  ctx: { req: any },
+  token: string,
+  expectedAction: string
+) {
+  const secret = process.env.TURNSTILE_SECRET?.trim();
+  const expectedHostnames = getExpectedTurnstileHostnames();
+
+  if (!secret) {
+    if (ENV.isProduction) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "Security verification is not configured.",
+      });
+    }
+    return;
+  }
+
+  if (!token || token.length > 2048 || expectedHostnames.size === 0) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Security verification failed.",
+    });
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+
+  try {
+    const response = await fetch(
+      "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        signal: controller.signal,
+        body: new URLSearchParams({
+          secret,
+          response: token,
+          remoteip: getRequestIp(ctx) ?? "",
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`siteverify ${response.status}`);
+    }
+
+    const result = (await response.json()) as {
+      success?: boolean;
+      action?: string;
+      hostname?: string;
+    };
+    const hostname = result.hostname?.toLowerCase();
+
+    if (
+      !result.success ||
+      result.action !== expectedAction ||
+      !hostname ||
+      !expectedHostnames.has(hostname)
+    ) {
+      throw new Error("siteverify rejected token");
+    }
+  } catch {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Security verification failed.",
+    });
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -718,9 +813,12 @@ export const appRouter = router({
           name: z.string().min(1).max(100),
           email: z.string().email(),
           password: z.string().min(8),
+          turnstileToken: turnstileTokenSchema,
         })
       )
       .mutation(async ({ input, ctx }) => {
+        await verifyTurnstileToken(ctx, input.turnstileToken, "register");
+
         const email = normalizeEmail(input.email);
 
         const existingCredential = await db.getUserCredentialByEmail(email);
@@ -758,9 +856,12 @@ export const appRouter = router({
         z.object({
           email: z.string().email(),
           password: z.string().min(1),
+          turnstileToken: turnstileTokenSchema,
         })
       )
       .mutation(async ({ input, ctx }) => {
+        await verifyTurnstileToken(ctx, input.turnstileToken, "login");
+
         const email = normalizeEmail(input.email);
         const rateLimit = await db.getLoginRateLimit(email);
 
@@ -824,8 +925,15 @@ export const appRouter = router({
       }),
 
     requestPasswordReset: publicProcedure
-      .input(z.object({ email: z.string().email() }))
-      .mutation(async ({ input }) => {
+      .input(
+        z.object({
+          email: z.string().email(),
+          turnstileToken: turnstileTokenSchema,
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        await verifyTurnstileToken(ctx, input.turnstileToken, "password_reset");
+
         const email = normalizeEmail(input.email);
         const canSend = await db.shouldAllowPasswordResetRequest(
           email,
@@ -915,8 +1023,16 @@ export const appRouter = router({
 
   adminAuth: router({
     login: publicProcedure
-      .input(z.object({ username: z.string(), password: z.string() }))
+      .input(
+        z.object({
+          username: z.string(),
+          password: z.string(),
+          turnstileToken: turnstileTokenSchema,
+        })
+      )
       .mutation(async ({ input, ctx }) => {
+        await verifyTurnstileToken(ctx, input.turnstileToken, "admin_login");
+
         const username = normalizeAdminUsername(input.username);
         const rateLimit = await db.getAdminLoginRateLimit(username);
         const lockedUntil =
@@ -1001,9 +1117,15 @@ export const appRouter = router({
       }),
     setup: publicProcedure
       .input(
-        z.object({ username: z.string().min(3), password: z.string().min(6) })
+        z.object({
+          username: z.string().min(3),
+          password: z.string().min(6),
+          turnstileToken: turnstileTokenSchema,
+        })
       )
       .mutation(async ({ input, ctx }) => {
+        await verifyTurnstileToken(ctx, input.turnstileToken, "admin_setup");
+
         const exists = await db.adminCredentialExists();
         if (exists) {
           throw new TRPCError({
@@ -1466,9 +1588,12 @@ export const appRouter = router({
           excerpt: z.string().optional(),
           coverImageUrl: z.string().optional(),
           isPublished: z.boolean().optional().default(false),
+          turnstileToken: turnstileTokenSchema,
         })
       )
       .mutation(async ({ input, ctx }) => {
+        await verifyTurnstileToken(ctx, input.turnstileToken, "article_create");
+
         const isMuted = await db.isUserMuted(ctx.user.id);
         if (isMuted) {
           throw new TRPCError({
@@ -1512,9 +1637,12 @@ export const appRouter = router({
           content: z.string().min(1),
           excerpt: z.string().optional(),
           coverImageUrl: z.string().optional(),
+          turnstileToken: turnstileTokenSchema,
         })
       )
       .mutation(async ({ input, ctx }) => {
+        await verifyTurnstileToken(ctx, input.turnstileToken, "article_update");
+
         const article = await db.getArticleById(input.id);
         if (!article) throw new TRPCError({ code: "NOT_FOUND" });
         if (article.authorId !== ctx.user.id && ctx.user.role !== "admin") {
@@ -1615,8 +1743,16 @@ export const appRouter = router({
         return db.getCommentsByArticle(input.articleId);
       }),
     create: protectedProcedure
-      .input(z.object({ content: z.string().min(1), articleId: z.number() }))
+      .input(
+        z.object({
+          content: z.string().min(1),
+          articleId: z.number(),
+          turnstileToken: turnstileTokenSchema,
+        })
+      )
       .mutation(async ({ input, ctx }) => {
+        await verifyTurnstileToken(ctx, input.turnstileToken, "comment_create");
+
         const isMuted = await db.isUserMuted(ctx.user.id);
         if (isMuted) {
           throw new TRPCError({
@@ -1805,9 +1941,12 @@ export const appRouter = router({
           email: z.string().email(),
           subject: z.string().min(1),
           message: z.string().min(1),
+          turnstileToken: turnstileTokenSchema,
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
+        await verifyTurnstileToken(ctx, input.turnstileToken, "contact");
+
         await db.createContactMessage(
           input.name,
           input.email,
@@ -1893,9 +2032,15 @@ export const appRouter = router({
       }),
     createCheckoutSession: publicProcedure
       .input(
-        z.object({ productId: z.string().min(1), variantId: z.string().min(1) })
+        z.object({
+          productId: z.string().min(1),
+          variantId: z.string().min(1),
+          turnstileToken: turnstileTokenSchema,
+        })
       )
       .mutation(async ({ input, ctx }) => {
+        await verifyTurnstileToken(ctx, input.turnstileToken, "shop_checkout");
+
         try {
           return createShopCheckoutSession({
             productId: input.productId,
@@ -1920,9 +2065,16 @@ export const appRouter = router({
         z.object({
           amountCents: z.number().int().min(100).max(1_000_000),
           isMonthly: z.boolean(),
+          turnstileToken: turnstileTokenSchema,
         })
       )
       .mutation(async ({ input, ctx }) => {
+        await verifyTurnstileToken(
+          ctx,
+          input.turnstileToken,
+          "donation_checkout"
+        );
+
         try {
           return createDonationCheckoutSession({
             amountCents: input.amountCents,

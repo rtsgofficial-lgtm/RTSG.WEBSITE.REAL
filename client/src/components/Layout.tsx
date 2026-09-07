@@ -12,6 +12,7 @@ import {
   Menu,
   Newspaper,
   PenLine,
+  Pickaxe,
   Shield,
   ShoppingBag,
   User,
@@ -42,6 +43,7 @@ const navItems = [
   { label: "About", href: "/about" },
   { label: "Contact", href: "/contact" },
   { label: "Resources", href: "/resources" },
+  { label: "Minecraft", href: "/minecraft" },
   { label: "News", href: "https://news.rtsg.org", external: true },
   { label: "World", href: "/globe" },
   { label: "Shop", href: "/shop" },
@@ -53,6 +55,7 @@ const mobileNavItems = [
   { label: "Articles", href: "/articles", icon: FileText },
   { label: "Write Article", href: "/articles/new", icon: PenLine },
   { label: "Resources", href: "/resources", icon: FileText },
+  { label: "Minecraft", href: "/minecraft", icon: Pickaxe },
   {
     label: "News",
     href: "https://news.rtsg.org",
@@ -140,6 +143,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       (href === "/articles" && location.startsWith("/articles")) ||
       (href === "/globe" && location.startsWith("/globe")) ||
       (href === "/shop" && location.startsWith("/shop")) ||
+      (href === "/minecraft" && (location.startsWith("/minecraft") || location.startsWith("/rules"))) ||
       (href === "/donate" && location.startsWith("/donate")));
 
   const NavLink = ({

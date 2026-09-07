@@ -1,6 +1,10 @@
 import { trpc } from "@/lib/trpc";
+import {
+  TurnstileWidget,
+  type TurnstileWidgetHandle,
+} from "@/components/TurnstileWidget";
 import { ArrowUpRight, Loader2, ShoppingBag } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { Link } from "wouter";
 
@@ -8,15 +12,24 @@ const SHOP_BACKGROUND_VIDEO =
   "https://rs.rtsg.org/glossy-red-liquid-morphing-abstract-background-2026-01-28-03-03-51-utc_2d2a24cb.mp4";
 
 export default function Shop() {
-  const checkoutParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+  const checkoutParams =
+    typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search)
+      : null;
   const checkoutStatus = checkoutParams?.get("checkout") ?? null;
   const checkoutProductId = checkoutParams?.get("product") ?? null;
   const { data: products = [] } = trpc.shop.listProducts.useQuery();
-  const [selectedVariants, setSelectedVariants] = useState<Record<string, string>>({});
+  const [selectedVariants, setSelectedVariants] = useState<
+    Record<string, string>
+  >({});
   const [pendingProductId, setPendingProductId] = useState<string | null>(null);
-  const checkoutProduct = products.find((product) => product.id === checkoutProductId);
+  const [turnstileToken, setTurnstileToken] = useState("");
+  const turnstileRef = useRef<TurnstileWidgetHandle | null>(null);
+  const checkoutProduct = products.find(
+    product => product.id === checkoutProductId
+  );
   const createCheckout = trpc.shop.createCheckoutSession.useMutation({
-    onSuccess: (session) => {
+    onSuccess: session => {
       if (!session.url) {
         setPendingProductId(null);
         toast.error("Stripe did not return a checkout link.");
@@ -25,23 +38,28 @@ export default function Shop() {
 
       window.location.assign(session.url);
     },
-    onError: (error) => {
+    onError: error => {
       setPendingProductId(null);
+      turnstileRef.current?.reset();
       toast.error(error.message);
     },
   });
 
   const handleCheckout = (productId: string) => {
-    const product = products.find((item) => item.id === productId);
+    const product = products.find(item => item.id === productId);
     const variantId = selectedVariants[productId] ?? product?.variants[0]?.id;
 
     if (!variantId) {
       toast.error("Choose a color before checkout.");
       return;
     }
+    if (!turnstileToken) {
+      toast.error("Complete the security check before checkout.");
+      return;
+    }
 
     setPendingProductId(productId);
-    createCheckout.mutate({ productId, variantId });
+    createCheckout.mutate({ productId, variantId, turnstileToken });
   };
 
   return (
@@ -99,7 +117,8 @@ export default function Shop() {
                 Shop
               </h1>
               <p className="mt-4 max-w-xl text-sm leading-relaxed text-white/62 sm:text-base">
-                Objects and apparel from the Research and Technical Studies Group.
+                Objects and apparel from the Research and Technical Studies
+                Group.
               </p>
             </div>
             <p className="text-xs uppercase tracking-[0.28em] text-white/42">
@@ -109,22 +128,27 @@ export default function Shop() {
 
           {checkoutStatus === "success" && (
             <p className="mt-6 max-w-xl text-sm leading-relaxed text-white/64">
-              Payment received{checkoutProduct ? ` for ${checkoutProduct.name}` : ""}. Your order confirmation is on its way.
+              Payment received
+              {checkoutProduct ? ` for ${checkoutProduct.name}` : ""}. Your
+              order confirmation is on its way.
             </p>
           )}
           {checkoutStatus === "cancelled" && (
             <p className="mt-6 max-w-xl text-sm leading-relaxed text-white/64">
-              Checkout was cancelled. No charge was made, and your selected item is still below.
+              Checkout was cancelled. No charge was made, and your selected item
+              is still below.
             </p>
           )}
         </section>
 
         <section className="shop-products-panel">
-          {products.map((product, index) => (
+          {products.map((product, index) =>
             (() => {
               const selectedVariant =
                 product.variants.find(
-                  (variant) => variant.id === (selectedVariants[product.id] ?? product.variants[0]?.id)
+                  variant =>
+                    variant.id ===
+                    (selectedVariants[product.id] ?? product.variants[0]?.id)
                 ) ?? product.variants[0];
 
               return (
@@ -133,10 +157,17 @@ export default function Shop() {
                   className="shop-product-row group"
                   style={{ animationDelay: `${index * 70}ms` }}
                 >
-                  <Link href={`/shop/${product.id}`} className="shop-product-media" aria-label={`View ${product.name}`}>
+                  <Link
+                    href={`/shop/${product.id}`}
+                    className="shop-product-media"
+                    aria-label={`View ${product.name}`}
+                  >
                     <div className="shop-product-orbit" />
                     <img
-                      src={selectedVariant?.mockupImageUrl ?? product.variants[0]?.mockupImageUrl}
+                      src={
+                        selectedVariant?.mockupImageUrl ??
+                        product.variants[0]?.mockupImageUrl
+                      }
                       alt={product.name}
                       className="shop-product-mark"
                     />
@@ -155,9 +186,14 @@ export default function Shop() {
                       <p className="mt-3 max-w-md text-sm leading-relaxed text-white/58">
                         {product.description}
                       </p>
-                      <div className="shop-product-variants" aria-label={`${product.name} ${product.optionLabel.toLowerCase()} options`}>
-                        {product.variants.map((variant) => {
-                          const selectedVariantId = selectedVariants[product.id] ?? product.variants[0]?.id;
+                      <div
+                        className="shop-product-variants"
+                        aria-label={`${product.name} ${product.optionLabel.toLowerCase()} options`}
+                      >
+                        {product.variants.map(variant => {
+                          const selectedVariantId =
+                            selectedVariants[product.id] ??
+                            product.variants[0]?.id;
                           const isSelected = selectedVariantId === variant.id;
 
                           return (
@@ -167,7 +203,7 @@ export default function Shop() {
                               className="shop-product-variant"
                               data-selected={isSelected ? "true" : undefined}
                               onClick={() =>
-                                setSelectedVariants((current) => ({
+                                setSelectedVariants(current => ({
                                   ...current,
                                   [product.id]: variant.id,
                                 }))
@@ -185,19 +221,25 @@ export default function Shop() {
                         <p className="text-base font-normal text-white sm:text-lg">
                           {selectedVariant?.price ?? product.price}
                         </p>
-                        <Link href={`/shop/${product.id}`} className="text-xs font-medium text-white/46 hover:text-primary">
+                        <Link
+                          href={`/shop/${product.id}`}
+                          className="text-xs font-medium text-white/46 hover:text-primary"
+                        >
                           View details
                         </Link>
                       </div>
                       <div className="flex items-center gap-2">
-                        <Link href={`/shop/${product.id}`} className="shop-product-secondary-action">
+                        <Link
+                          href={`/shop/${product.id}`}
+                          className="shop-product-secondary-action"
+                        >
                           Details
                         </Link>
                         <button
                           type="button"
                           className="shop-product-arrow"
                           onClick={() => handleCheckout(product.id)}
-                          disabled={createCheckout.isPending}
+                          disabled={createCheckout.isPending || !turnstileToken}
                           aria-label={`Checkout ${product.name}`}
                         >
                           {pendingProductId === product.id ? (
@@ -212,9 +254,15 @@ export default function Shop() {
                 </article>
               );
             })()
-          ))}
+          )}
         </section>
 
+        <TurnstileWidget
+          ref={turnstileRef}
+          action="shop_checkout"
+          onTokenChange={setTurnstileToken}
+          className="mt-6"
+        />
       </div>
     </div>
   );

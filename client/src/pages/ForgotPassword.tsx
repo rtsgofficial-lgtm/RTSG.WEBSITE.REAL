@@ -1,7 +1,11 @@
 import { Button } from "@/components/ui/button";
+import {
+  TurnstileWidget,
+  type TurnstileWidgetHandle,
+} from "@/components/TurnstileWidget";
 import { trpc } from "@/lib/trpc";
 import { ArrowLeft, Mail } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
@@ -9,22 +13,31 @@ export default function ForgotPassword() {
   const [, navigate] = useLocation();
   const [email, setEmail] = useState("");
   const [sentMessage, setSentMessage] = useState("");
+  const [turnstileToken, setTurnstileToken] = useState("");
+  const turnstileRef = useRef<TurnstileWidgetHandle | null>(null);
 
   const requestReset = trpc.auth.requestPasswordReset.useMutation({
-    onSuccess: (data) => {
+    onSuccess: data => {
       const message =
-        data.message || "If an account exists for that email, a reset link will be sent shortly.";
+        data.message ||
+        "If an account exists for that email, a reset link will be sent shortly.";
       setSentMessage(message);
       toast.success("Check your email for a reset link.");
+      turnstileRef.current?.reset();
     },
     onError: () => {
+      turnstileRef.current?.reset();
       toast.error("Something went wrong. Please try again in a moment.");
     },
   });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    requestReset.mutate({ email });
+    if (!turnstileToken) {
+      toast.error("Complete the security check before continuing.");
+      return;
+    }
+    requestReset.mutate({ email, turnstileToken });
   };
 
   return (
@@ -61,7 +74,7 @@ export default function ForgotPassword() {
               <input
                 type="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={e => setEmail(e.target.value)}
                 required
                 className="w-full pl-10 pr-4 py-3 rounded-xl bg-white/5 border border-white/10 text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/30 transition-all"
                 placeholder="you@example.com"
@@ -69,9 +82,15 @@ export default function ForgotPassword() {
             </div>
           </div>
 
+          <TurnstileWidget
+            ref={turnstileRef}
+            action="password_reset"
+            onTokenChange={setTurnstileToken}
+          />
+
           <Button
             type="submit"
-            disabled={requestReset.isPending}
+            disabled={requestReset.isPending || !turnstileToken}
             className="w-full rounded-xl py-5 gap-2 bg-primary hover:bg-primary/90 text-primary-foreground font-medium transition-transform duration-150 active:scale-[0.97] mt-6"
           >
             {requestReset.isPending ? "Sending..." : "Send Reset Link"}

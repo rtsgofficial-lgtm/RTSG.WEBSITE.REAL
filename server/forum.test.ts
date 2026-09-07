@@ -4,11 +4,16 @@ import { COOKIE_NAME } from "../shared/const";
 import type { TrpcContext } from "./_core/context";
 
 type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
+const TURNSTILE_TEST_TOKEN = "test-turnstile-token";
 
-function createContext(user?: AuthenticatedUser | null, headers?: Record<string, string>): TrpcContext {
+function createContext(
+  user?: AuthenticatedUser | null,
+  headers?: Record<string, string>
+): TrpcContext {
   return {
     user: user ?? null,
     req: {
+      hostname: "rtsg.org",
       protocol: "https",
       headers: headers || {},
     } as TrpcContext["req"],
@@ -18,7 +23,9 @@ function createContext(user?: AuthenticatedUser | null, headers?: Record<string,
   };
 }
 
-function createUser(overrides: Partial<AuthenticatedUser> = {}): AuthenticatedUser {
+function createUser(
+  overrides: Partial<AuthenticatedUser> = {}
+): AuthenticatedUser {
   return {
     id: 1,
     openId: "test-user-123",
@@ -56,11 +63,16 @@ describe("auth.me", () => {
 
 describe("auth.logout", () => {
   it("clears the session cookie and reports success", async () => {
-    const clearedCookies: { name: string; options: Record<string, unknown> }[] = [];
+    const clearedCookies: { name: string; options: Record<string, unknown> }[] =
+      [];
     const user = createUser();
     const ctx: TrpcContext = {
       user,
-      req: { protocol: "https", headers: {} } as TrpcContext["req"],
+      req: {
+        hostname: "rtsg.org",
+        protocol: "https",
+        headers: {},
+      } as TrpcContext["req"],
       res: {
         clearCookie: (name: string, options: Record<string, unknown>) => {
           clearedCookies.push({ name, options });
@@ -88,14 +100,20 @@ describe("adminAuth", () => {
     const ctx = createContext(null);
     const caller = appRouter.createCaller(ctx);
     await expect(
-      caller.adminAuth.login({ username: "nonexistent", password: "wrong" })
+      caller.adminAuth.login({
+        username: "nonexistent",
+        password: "wrong",
+        turnstileToken: TURNSTILE_TEST_TOKEN,
+      })
     ).rejects.toThrow();
   });
 
   it("verify returns invalid for random token", async () => {
     const ctx = createContext(null);
     const caller = appRouter.createCaller(ctx);
-    const result = await caller.adminAuth.verify({ token: "random-invalid-token" });
+    const result = await caller.adminAuth.verify({
+      token: "random-invalid-token",
+    });
     expect(result.valid).toBe(false);
   });
 });
@@ -120,7 +138,11 @@ describe("articles", () => {
     const user = createUser();
     const ctx = createContext(user);
     const caller = appRouter.createCaller(ctx);
-    const result = await caller.articles.create({ title: "Test Article", content: "<p>Content here</p>" });
+    const result = await caller.articles.create({
+      title: "Test Article",
+      content: "<p>Content here</p>",
+      turnstileToken: TURNSTILE_TEST_TOKEN,
+    });
     expect(result.success).toBe(true);
     expect(result.articleId).toBeDefined();
   });
@@ -136,9 +158,9 @@ describe("articles", () => {
     const user = createUser({ role: "user" });
     const ctx = createContext(user);
     const caller = appRouter.createCaller(ctx);
-    await expect(
-      caller.articles.delete({ id: 9999 })
-    ).rejects.toThrow("Moderator access required");
+    await expect(caller.articles.delete({ id: 9999 })).rejects.toThrow(
+      "Moderator access required"
+    );
   });
 
   it("togglePin requires moderator role", async () => {
@@ -180,9 +202,9 @@ describe("comments", () => {
     const user = createUser({ role: "user" });
     const ctx = createContext(user);
     const caller = appRouter.createCaller(ctx);
-    await expect(
-      caller.comments.delete({ id: 9999 })
-    ).rejects.toThrow("Moderator access required");
+    await expect(caller.comments.delete({ id: 9999 })).rejects.toThrow(
+      "Moderator access required"
+    );
   });
 });
 
@@ -228,7 +250,12 @@ describe("contact", () => {
     const ctx = createContext(null);
     const caller = appRouter.createCaller(ctx);
     await expect(
-      caller.contact.submit({ name: "Test", email: "invalid", subject: "Hi", message: "Hello" })
+      caller.contact.submit({
+        name: "Test",
+        email: "invalid",
+        subject: "Hi",
+        message: "Hello",
+      })
     ).rejects.toThrow();
   });
 

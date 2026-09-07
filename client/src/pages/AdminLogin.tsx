@@ -1,7 +1,11 @@
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
+import {
+  TurnstileWidget,
+  type TurnstileWidgetHandle,
+} from "@/components/TurnstileWidget";
 import { Shield, Lock, User, Eye, EyeOff } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 
@@ -11,17 +15,22 @@ export default function AdminLogin() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isSetup, setIsSetup] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState("");
+  const turnstileRef = useRef<TurnstileWidgetHandle | null>(null);
 
   const { data: credStatus } = trpc.adminAuth.hasCredentials.useQuery();
 
   const login = trpc.adminAuth.login.useMutation({
-    onSuccess: (data) => {
+    onSuccess: data => {
       localStorage.setItem("admin_token", data.token);
       localStorage.setItem("admin_username", data.username);
       toast.success("Welcome back, admin.");
       navigate("/admin/dashboard");
     },
-    onError: (err) => toast.error(err.message),
+    onError: err => {
+      turnstileRef.current?.reset();
+      toast.error(err.message);
+    },
   });
 
   const setup = trpc.adminAuth.setup.useMutation({
@@ -30,17 +39,24 @@ export default function AdminLogin() {
       setIsSetup(false);
       setPassword("");
     },
-    onError: (err) => toast.error(err.message),
+    onError: err => {
+      turnstileRef.current?.reset();
+      toast.error(err.message);
+    },
   });
 
   const needsSetup = credStatus && !credStatus.exists;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!turnstileToken) {
+      toast.error("Complete the security check before continuing.");
+      return;
+    }
     if (needsSetup || isSetup) {
-      setup.mutate({ username, password });
+      setup.mutate({ username, password, turnstileToken });
     } else {
-      login.mutate({ username, password });
+      login.mutate({ username, password, turnstileToken });
     }
   };
 
@@ -76,7 +92,7 @@ export default function AdminLogin() {
                 <input
                   type="text"
                   value={username}
-                  onChange={(e) => setUsername(e.target.value)}
+                  onChange={e => setUsername(e.target.value)}
                   placeholder="admin"
                   required
                   minLength={3}
@@ -94,7 +110,7 @@ export default function AdminLogin() {
                 <input
                   type={showPassword ? "text" : "password"}
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={e => setPassword(e.target.value)}
                   placeholder="••••••••"
                   required
                   minLength={6}
@@ -105,22 +121,33 @@ export default function AdminLogin() {
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                 >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  {showPassword ? (
+                    <EyeOff className="w-4 h-4" />
+                  ) : (
+                    <Eye className="w-4 h-4" />
+                  )}
                 </button>
               </div>
             </div>
 
+            <TurnstileWidget
+              key={needsSetup || isSetup ? "admin_setup" : "admin_login"}
+              ref={turnstileRef}
+              action={needsSetup || isSetup ? "admin_setup" : "admin_login"}
+              onTokenChange={setTurnstileToken}
+            />
+
             <Button
               type="submit"
-              disabled={login.isPending || setup.isPending}
+              disabled={login.isPending || setup.isPending || !turnstileToken}
               className="w-full rounded-xl py-5 gap-2 bg-primary hover:bg-primary/90 text-primary-foreground font-medium transition-transform duration-150 active:scale-[0.97] mt-6"
             >
               <Shield className="w-4 h-4" />
               {login.isPending || setup.isPending
                 ? "Processing..."
                 : needsSetup || isSetup
-                ? "Create Admin Account"
-                : "Sign In"}
+                  ? "Create Admin Account"
+                  : "Sign In"}
             </Button>
           </form>
 

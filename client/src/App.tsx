@@ -34,6 +34,8 @@ import ResetPassword from "./pages/ResetPassword";
 import News, { NewsCategoryPage, NewsSearchPage } from "./pages/News";
 import NewsArticleDetail from "./pages/NewsArticleDetail";
 import NewsArticlePreview from "./pages/NewsArticlePreview";
+import Minecraft from "./pages/Minecraft";
+import Rules from "./pages/Rules";
 
 const Globe = lazy(() => import("./pages/Globe"));
 
@@ -66,6 +68,8 @@ function AdminRouter() {
       <Route path="/contact" component={Contact} />
       <Route path="/resources/pdf" component={PdfReader} />
       <Route path="/resources" component={Resources} />
+      <Route path="/minecraft" component={Minecraft} />
+      <Route path="/rules" component={Rules} />
       <Route path="/shop/:productId" component={ShopProduct} />
       <Route path="/shop" component={Shop} />
       <Route path="/donate/success" component={DonateStatus} />
@@ -103,6 +107,8 @@ function PublicRouter() {
       <Route path="/contact" component={Contact} />
       <Route path="/resources/pdf" component={PdfReader} />
       <Route path="/resources" component={Resources} />
+      <Route path="/minecraft" component={Minecraft} />
+      <Route path="/rules" component={Rules} />
       <Route path="/shop/:productId" component={ShopProduct} />
       <Route path="/shop" component={Shop} />
       <Route path="/donate/success" component={DonateStatus} />
@@ -133,6 +139,8 @@ function ConstructionRouter() {
       <Route path="/reset-password" component={ResetPassword} />
       <Route path="/shop/:productId" component={ShopProduct} />
       <Route path="/shop" component={Shop} />
+      <Route path="/minecraft" component={Minecraft} />
+      <Route path="/rules" component={Rules} />
       <Route path="/donate/success" component={DonateStatus} />
       <Route path="/donate/cancel" component={DonateStatus} />
       <Route path="/donate" component={Donate} />

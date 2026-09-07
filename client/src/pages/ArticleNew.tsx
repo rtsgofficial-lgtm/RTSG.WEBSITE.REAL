@@ -3,6 +3,10 @@ import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
+import {
+  TurnstileWidget,
+  type TurnstileWidgetHandle,
+} from "@/components/TurnstileWidget";
 import { toast } from "sonner";
 import RichTextEditor from "@/components/RichTextEditor";
 import { ArrowLeft, Image as ImageIcon, Send } from "lucide-react";
@@ -26,7 +30,9 @@ export default function ArticleNew() {
   const [content, setContent] = useState("");
   const [excerpt, setExcerpt] = useState("");
   const [coverImageUrl, setCoverImageUrl] = useState("");
+  const [turnstileToken, setTurnstileToken] = useState("");
   const coverInputRef = useRef<HTMLInputElement>(null);
+  const turnstileRef = useRef<TurnstileWidgetHandle | null>(null);
 
   const uploadImage = trpc.upload.image.useMutation();
   const createArticle = trpc.articles.create.useMutation({
@@ -39,7 +45,10 @@ export default function ArticleNew() {
         navigate(`/articles/${data.articleId}`);
       }
     },
-    onError: err => toast.error(err.message),
+    onError: err => {
+      turnstileRef.current?.reset();
+      toast.error(err.message);
+    },
   });
 
   const handleCoverUpload = async (file: File) => {
@@ -71,12 +80,17 @@ export default function ArticleNew() {
       toast.error("Title and content are required");
       return;
     }
+    if (!turnstileToken) {
+      toast.error("Complete the security check before continuing.");
+      return;
+    }
     createArticle.mutate({
       title: title.trim(),
       content,
       excerpt: excerpt.trim() || undefined,
       coverImageUrl: coverImageUrl || undefined,
       isPublished,
+      turnstileToken,
     });
   };
 
@@ -218,12 +232,20 @@ export default function ArticleNew() {
             />
           </div>
 
+          <TurnstileWidget
+            ref={turnstileRef}
+            action="article_create"
+            onTokenChange={setTurnstileToken}
+          />
+
           {/* Submit */}
           <div className="flex flex-col-reverse gap-3 pt-4 sm:flex-row sm:justify-end">
             <Button
               type="button"
               variant="outline"
-              disabled={createArticle.isPending || user?.isMuted}
+              disabled={
+                createArticle.isPending || user?.isMuted || !turnstileToken
+              }
               onClick={e => handleSubmit(e as any, false)}
               className="w-full rounded-xl px-6 py-5 border border-white/10 hover:bg-white/5 font-medium transition-all sm:w-auto"
             >
@@ -231,7 +253,9 @@ export default function ArticleNew() {
             </Button>
             <Button
               type="submit"
-              disabled={createArticle.isPending || user?.isMuted}
+              disabled={
+                createArticle.isPending || user?.isMuted || !turnstileToken
+              }
               className="w-full rounded-xl gap-2 px-6 py-5 bg-primary hover:bg-primary/90 text-primary-foreground font-medium transition-transform duration-150 active:scale-[0.97] sm:w-auto"
             >
               <Send className="w-4 h-4" />
