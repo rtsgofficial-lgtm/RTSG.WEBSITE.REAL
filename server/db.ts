@@ -10,6 +10,8 @@ import {
   passwordResetRateLimits,
   adminCredentials,
   adminActionLogs,
+  codexPublisherTokens,
+  codexPublisherLogs,
   articles,
   newsArticles,
   comments,
@@ -805,6 +807,174 @@ export async function getAdminActionLogs(limit = 100) {
     if (!isMissingAdminSecurityTableError(error)) throw error;
     return [];
   }
+}
+
+// ─── Codex Publisher Automation ────────────────────────────────────────────
+
+export async function createCodexPublisherToken(input: {
+  id: string;
+  name: string;
+  tokenHash: string;
+  scopes: string[];
+  expiresAt?: Date | null;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db.insert(codexPublisherTokens).values({
+    id: input.id,
+    name: input.name,
+    tokenHash: input.tokenHash,
+    scopes: input.scopes,
+    expiresAt: input.expiresAt ?? null,
+    active: true,
+  });
+}
+
+export async function getCodexPublisherTokenByHash(tokenHash: string) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const result = await db
+    .select()
+    .from(codexPublisherTokens)
+    .where(eq(codexPublisherTokens.tokenHash, tokenHash))
+    .limit(1);
+
+  return result[0] ?? null;
+}
+
+export async function listCodexPublisherTokens() {
+  const db = await getDb();
+  if (!db) return [];
+
+  return db
+    .select({
+      id: codexPublisherTokens.id,
+      name: codexPublisherTokens.name,
+      scopes: codexPublisherTokens.scopes,
+      createdAt: codexPublisherTokens.createdAt,
+      expiresAt: codexPublisherTokens.expiresAt,
+      lastUsedAt: codexPublisherTokens.lastUsedAt,
+      active: codexPublisherTokens.active,
+    })
+    .from(codexPublisherTokens)
+    .orderBy(desc(codexPublisherTokens.createdAt));
+}
+
+export async function updateCodexPublisherTokenLastUsed(tokenId: string) {
+  const db = await getDb();
+  if (!db) return;
+
+  await db
+    .update(codexPublisherTokens)
+    .set({ lastUsedAt: new Date() })
+    .where(eq(codexPublisherTokens.id, tokenId));
+}
+
+export async function revokeCodexPublisherToken(tokenId: string) {
+  const db = await getDb();
+  if (!db) return;
+
+  await db
+    .update(codexPublisherTokens)
+    .set({ active: false })
+    .where(eq(codexPublisherTokens.id, tokenId));
+}
+
+export async function revokeAllCodexPublisherTokens() {
+  const db = await getDb();
+  if (!db) return;
+
+  await db.update(codexPublisherTokens).set({ active: false });
+}
+
+export async function createCodexPublisherLog(input: {
+  tokenId?: string | null;
+  action: string;
+  articleId?: number | null;
+  ipAddress?: string | null;
+  success: boolean;
+  errorMessage?: string | null;
+}) {
+  const db = await getDb();
+  if (!db) return;
+
+  await db.insert(codexPublisherLogs).values({
+    tokenId: input.tokenId ?? null,
+    action: input.action,
+    articleId: input.articleId ?? null,
+    ipAddress: input.ipAddress ?? null,
+    success: input.success,
+    errorMessage: input.errorMessage ?? null,
+  });
+}
+
+export async function getCodexPublisherLogs(limit = 100) {
+  const db = await getDb();
+  if (!db) return [];
+
+  return db
+    .select({
+      id: codexPublisherLogs.id,
+      tokenId: codexPublisherLogs.tokenId,
+      tokenName: codexPublisherTokens.name,
+      action: codexPublisherLogs.action,
+      articleId: codexPublisherLogs.articleId,
+      timestamp: codexPublisherLogs.timestamp,
+      ipAddress: codexPublisherLogs.ipAddress,
+      success: codexPublisherLogs.success,
+      errorMessage: codexPublisherLogs.errorMessage,
+    })
+    .from(codexPublisherLogs)
+    .leftJoin(
+      codexPublisherTokens,
+      eq(codexPublisherLogs.tokenId, codexPublisherTokens.id)
+    )
+    .orderBy(desc(codexPublisherLogs.timestamp), desc(codexPublisherLogs.id))
+    .limit(limit);
+}
+
+export async function countCodexPublisherActionsSince(
+  tokenId: string,
+  action: string,
+  since: Date
+) {
+  const db = await getDb();
+  if (!db) return 0;
+
+  const result = await db
+    .select({ count: sql<number>`COUNT(*)` })
+    .from(codexPublisherLogs)
+    .where(
+      and(
+        eq(codexPublisherLogs.tokenId, tokenId),
+        eq(codexPublisherLogs.action, action),
+        eq(codexPublisherLogs.success, true),
+        sql`${codexPublisherLogs.timestamp} >= ${since}`
+      )
+    );
+
+  return Number(result[0]?.count ?? 0);
+}
+
+export async function getLatestSuccessfulCodexPublisherAction(action: string) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const result = await db
+    .select()
+    .from(codexPublisherLogs)
+    .where(
+      and(
+        eq(codexPublisherLogs.action, action),
+        eq(codexPublisherLogs.success, true)
+      )
+    )
+    .orderBy(desc(codexPublisherLogs.timestamp), desc(codexPublisherLogs.id))
+    .limit(1);
+
+  return result[0] ?? null;
 }
 
 // ─── Articles ──────────────────────────────────────────────────────────────

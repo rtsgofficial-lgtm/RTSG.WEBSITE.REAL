@@ -1,6 +1,7 @@
 import {
   boolean,
   int,
+  json,
   mysqlEnum,
   mysqlTable,
   text,
@@ -117,6 +118,31 @@ export const adminActionLogs = mysqlTable("admin_action_logs", {
 });
 
 export type AdminActionLog = typeof adminActionLogs.$inferSelect;
+
+export const codexPublisherTokens = mysqlTable("codex_publisher_tokens", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  name: varchar("name", { length: 128 }).notNull(),
+  tokenHash: varchar("token_hash", { length: 64 }).notNull().unique(),
+  scopes: json("scopes").$type<string[]>().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  expiresAt: timestamp("expires_at"),
+  lastUsedAt: timestamp("last_used_at"),
+  active: boolean("active").default(true).notNull(),
+});
+
+export const codexPublisherLogs = mysqlTable("codex_publisher_logs", {
+  id: int("id").autoincrement().primaryKey(),
+  tokenId: varchar("token_id", { length: 36 }),
+  action: varchar("action", { length: 64 }).notNull(),
+  articleId: int("article_id"),
+  timestamp: timestamp("timestamp").defaultNow().notNull(),
+  ipAddress: varchar("ip", { length: 128 }),
+  success: boolean("success").default(false).notNull(),
+  errorMessage: text("error_message"),
+});
+
+export type CodexPublisherToken = typeof codexPublisherTokens.$inferSelect;
+export type CodexPublisherLog = typeof codexPublisherLogs.$inferSelect;
 
 /**
  * Articles (replaces forum threads).

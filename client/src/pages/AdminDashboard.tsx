@@ -29,6 +29,11 @@ import {
   CheckCircle,
   X,
   ExternalLink,
+  Bot,
+  KeyRound,
+  RefreshCw,
+  Power,
+  Ban,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
@@ -49,6 +54,7 @@ type Tab =
   | "news"
   | "shop"
   | "world"
+  | "automation"
   | "settings"
   | "logs";
 
@@ -60,6 +66,7 @@ const DASHBOARD_TABS: Tab[] = [
   "news",
   "shop",
   "world",
+  "automation",
   "settings",
   "logs",
 ];
@@ -164,6 +171,11 @@ export default function AdminDashboard() {
     { id: "shop", label: "Shop", icon: <ShoppingBag className="w-4 h-4" /> },
     { id: "world", label: "World", icon: <Globe2 className="w-4 h-4" /> },
     {
+      id: "automation",
+      label: "Automation",
+      icon: <Bot className="w-4 h-4" />,
+    },
+    {
       id: "settings",
       label: "Settings",
       icon: <Settings className="w-4 h-4" />,
@@ -230,6 +242,7 @@ export default function AdminDashboard() {
         {activeTab === "news" && <NewsPanel />}
         {activeTab === "shop" && <ShopPanel />}
         {activeTab === "world" && <WorldPanel />}
+        {activeTab === "automation" && <AutomationPanel />}
         {activeTab === "settings" && <SettingsPanel token={token} />}
         {activeTab === "logs" && <LogsPanel />}
       </div>
@@ -2130,6 +2143,243 @@ function WorldPanel() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function formatAutomationDate(value: string | Date | null | undefined) {
+  return value ? new Date(value).toLocaleString() : "—";
+}
+
+function AutomationPanel() {
+  const { data, isLoading, refetch } = trpc.codexAutomation.status.useQuery();
+  const [freshToken, setFreshToken] = useState("");
+  const regenerateToken = trpc.codexAutomation.regenerateToken.useMutation({
+    onSuccess: result => {
+      setFreshToken(result.token);
+      refetch();
+      toast.success("Publisher token regenerated");
+    },
+    onError: err => toast.error(err.message),
+  });
+  const revokeToken = trpc.codexAutomation.revokeToken.useMutation({
+    onSuccess: () => {
+      refetch();
+      toast.success("Publisher token revoked");
+    },
+    onError: err => toast.error(err.message),
+  });
+  const setEnabled = trpc.codexAutomation.setEnabled.useMutation({
+    onSuccess: () => {
+      refetch();
+      toast.success("Automation setting updated");
+    },
+    onError: err => toast.error(err.message),
+  });
+
+  const copyToken = async () => {
+    try {
+      await navigator.clipboard.writeText(freshToken);
+      toast.success("Token copied");
+    } catch {
+      toast.error("Could not copy token");
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="p-8 text-center">
+        <div className="w-8 h-8 border-2 border-primary/30 border-t-primary rounded-full animate-spin mx-auto" />
+      </div>
+    );
+  }
+
+  const activeToken = data?.activeToken;
+
+  return (
+    <div className="animate-fade-in">
+      <h2 className="text-xl font-bold text-foreground mb-4">
+        Codex Publisher Automation
+      </h2>
+      <p className="text-sm text-muted-foreground mb-6">
+        Manage the restricted weekly RTSG News publisher API. Tokens can create
+        drafts, upload article images, and publish news articles only.
+      </p>
+
+      <div className="grid gap-4 lg:grid-cols-4 mb-6">
+        <div className="glass rounded-2xl p-5">
+          <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
+            Status
+          </p>
+          <p className="text-lg font-semibold text-foreground">
+            {data?.enabled ? "Enabled" : "Disabled"}
+          </p>
+        </div>
+        <div className="glass rounded-2xl p-5">
+          <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
+            Token
+          </p>
+          <p className="text-lg font-semibold text-foreground">
+            {activeToken ? "Active" : "Not configured"}
+          </p>
+        </div>
+        <div className="glass rounded-2xl p-5">
+          <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
+            Last Publish
+          </p>
+          <p className="text-sm font-medium text-foreground">
+            {formatAutomationDate(data?.lastPublication?.timestamp)}
+          </p>
+        </div>
+        <div className="glass rounded-2xl p-5">
+          <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
+            Next Eligible
+          </p>
+          <p className="text-sm font-medium text-foreground">
+            {formatAutomationDate(data?.nextEligiblePublishDate)}
+          </p>
+        </div>
+      </div>
+
+      {freshToken && (
+        <div className="glass rounded-2xl p-5 mb-6 border border-primary/30">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <h3 className="font-semibold text-foreground mb-2">
+                New token, shown once
+              </h3>
+              <p className="break-all rounded-xl bg-black/30 p-3 font-mono text-xs text-primary">
+                {freshToken}
+              </p>
+            </div>
+            <Button onClick={copyToken} className="rounded-xl gap-2">
+              <Copy className="w-4 h-4" />
+              Copy
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <div className="glass rounded-2xl p-5 mb-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="font-semibold text-foreground mb-1">
+              Publisher Token
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              {activeToken
+                ? `${activeToken.name} • last used ${formatAutomationDate(activeToken.lastUsedAt)}`
+                : "Generate a token before scheduling the weekly publisher."}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant={data?.enabled ? "outline" : "default"}
+              onClick={() => setEnabled.mutate({ enabled: !data?.enabled })}
+              disabled={setEnabled.isPending}
+              className="rounded-xl gap-2"
+            >
+              {data?.enabled ? (
+                <Ban className="w-4 h-4" />
+              ) : (
+                <Power className="w-4 h-4" />
+              )}
+              {data?.enabled ? "Disable" : "Enable"}
+            </Button>
+            {activeToken && (
+              <Button
+                variant="outline"
+                onClick={() => revokeToken.mutate({ tokenId: activeToken.id })}
+                disabled={revokeToken.isPending}
+                className="rounded-xl gap-2"
+              >
+                <KeyRound className="w-4 h-4" />
+                Revoke
+              </Button>
+            )}
+            <Button
+              onClick={() => regenerateToken.mutate()}
+              disabled={regenerateToken.isPending}
+              className="rounded-xl gap-2"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Regenerate
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      <div className="glass rounded-2xl overflow-hidden">
+        <div className="px-5 py-4 border-b border-white/5">
+          <h3 className="font-semibold text-foreground">Recent API Actions</h3>
+          <p className="text-sm text-muted-foreground">
+            Drafts, publishes, image uploads, and failures from the publisher
+            API.
+          </p>
+        </div>
+        {data?.logs && data.logs.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-white/5">
+                  <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Time
+                  </th>
+                  <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Action
+                  </th>
+                  <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Token
+                  </th>
+                  <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Article
+                  </th>
+                  <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Result
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.logs.map(log => (
+                  <tr
+                    key={log.id}
+                    className="border-b border-white/5 last:border-0"
+                  >
+                    <td className="px-5 py-4 text-sm text-muted-foreground whitespace-nowrap">
+                      {formatAutomationDate(log.timestamp)}
+                    </td>
+                    <td className="px-5 py-4 text-sm font-medium text-foreground whitespace-nowrap">
+                      {log.action}
+                    </td>
+                    <td className="px-5 py-4 text-sm text-muted-foreground whitespace-nowrap">
+                      {log.tokenName || log.tokenId || "—"}
+                    </td>
+                    <td className="px-5 py-4 text-sm text-muted-foreground whitespace-nowrap">
+                      {log.articleId ? `#${log.articleId}` : "—"}
+                    </td>
+                    <td className="px-5 py-4 text-sm">
+                      {log.success ? (
+                        <span className="text-green-400">Success</span>
+                      ) : (
+                        <span className="text-destructive">
+                          {log.errorMessage || "Failed"}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="p-12 text-center">
+            <Bot className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
+            <p className="text-muted-foreground">
+              No publisher API actions yet.
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

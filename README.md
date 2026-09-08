@@ -4,6 +4,59 @@ This template gives you a React 19 + Tailwind 4 + Express 4 + tRPC 11 stack with
 
 ---
 
+## Codex Publisher Automation
+
+The restricted Codex Publisher API is mounted at `/api/codex`. It uses bearer-token authentication, stores only SHA-256 token hashes, enforces per-token scopes, and records every successful or failed API action in `codex_publisher_logs`.
+
+Environment:
+
+```bash
+CODEX_PUBLISHER_ENABLED=true
+CODEX_API_TOKEN=
+CODEX_TOKEN_NAME=RTSG Weekly Publisher
+CODEX_MAX_WORDS=3000
+CODEX_MIN_WORDS=400
+```
+
+Generate the production token from the admin dashboard at `/admin/dashboard?tab=automation`. The plaintext token is shown once; store it as `CODEX_API_TOKEN` wherever the weekly publisher runs. RTSG only stores the hash.
+
+Database migration:
+
+```bash
+pnpm db:push
+```
+
+API:
+
+- `POST /api/codex/articles` requires `article:create`. Creates a draft by default. If `status` is `published`, the token must also have `article:publish` and the weekly publish limit applies.
+- `POST /api/codex/articles/:id/publish` requires `article:publish`. Publishes an existing news draft.
+- `POST /api/codex/images` requires `image:upload`. Accepts `png`, `jpg`, and `webp` images up to 10 MB as base64 and uploads to Cloudflare R2 under `codex-news/`.
+
+Limits:
+
+- Maximum 3 draft creations per token per day.
+- Maximum 10 image uploads per token per day.
+- Maximum 1 publication per token every 7 days.
+
+Example requests:
+
+```bash
+curl -X POST https://news.rtsg.org/api/codex/articles \
+  -H "Authorization: Bearer $CODEX_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Example","subtitle":"Short deck","content":"<p>400+ words...</p>","category":"International","tags":["BRICS"],"status":"draft"}'
+
+curl -X POST https://news.rtsg.org/api/codex/articles/123/publish \
+  -H "Authorization: Bearer $CODEX_API_TOKEN"
+
+curl -X POST https://news.rtsg.org/api/codex/images \
+  -H "Authorization: Bearer $CODEX_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"imageBase64":"...","mimeType":"image/jpeg","filename":"source-photo.jpg"}'
+```
+
+---
+
 ## Quick Facts
 
 - **tRPC-first:** define procedures in `server/routers.ts`, consume them with `trpc.*` hooks.

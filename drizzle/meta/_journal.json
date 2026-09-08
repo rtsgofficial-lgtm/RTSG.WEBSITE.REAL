@@ -85,6 +85,20 @@
       "when": 1786809600000,
       "tag": "0011_news_article_attributions",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "5",
+      "when": 1788883200000,
+      "tag": "0012_codex_publisher_automation",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "5",
+      "when": 1788825258036,
+      "tag": "0013_robust_rocket_raccoon",
+      "breakpoints": true
     }
   ]
 }

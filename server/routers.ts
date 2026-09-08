@@ -34,6 +34,10 @@ import {
 import { storagePut } from "./storage";
 import crypto from "crypto";
 import { ENV } from "./_core/env";
+import {
+  CODEX_PUBLISHER_SCOPES,
+  createCodexPublisherToken as createPublisherToken,
+} from "./_core/codexPublisher";
 
 // ─── Role-based middleware ──────────────────────────────────────────────────
 
@@ -1153,6 +1157,77 @@ export const appRouter = router({
       )
       .query(async ({ input }) => {
         return db.getAdminActionLogs(input?.limit ?? 100);
+      }),
+  }),
+
+  codexAutomation: router({
+    status: dashboardProcedure.query(async () => {
+      const [tokens, logs, enabledSetting, lastPublish, lastDraft] =
+        await Promise.all([
+          db.listCodexPublisherTokens(),
+          db.getCodexPublisherLogs(50),
+          db.getSetting("codexPublisherEnabled"),
+          db.getLatestSuccessfulCodexPublisherAction("publish"),
+          db.getLatestSuccessfulCodexPublisherAction("draft_create"),
+        ]);
+      const activeToken = tokens.find(token => token.active) ?? null;
+      const lastApiUse = logs[0] ?? null;
+      const lastPublicationDate = lastPublish?.timestamp ?? null;
+      const nextEligiblePublishDate = lastPublicationDate
+        ? new Date(lastPublicationDate.getTime() + 7 * 24 * 60 * 60 * 1000)
+        : null;
+
+      return {
+        enabled:
+          enabledSetting === undefined
+            ? process.env.CODEX_PUBLISHER_ENABLED !== "false"
+            : enabledSetting === "true",
+        activeToken,
+        tokens,
+        logs,
+        lastPublication: lastPublish,
+        lastDraft,
+        lastApiUse,
+        nextEligiblePublishDate,
+        scopes: CODEX_PUBLISHER_SCOPES,
+      };
+    }),
+    regenerateToken: dashboardProcedure.mutation(async ({ ctx }) => {
+      await db.revokeAllCodexPublisherTokens();
+      const created = await createPublisherToken();
+      await logAdminAction(ctx, {
+        action: "codex_automation.regenerate_token",
+        targetType: "codex_publisher_token",
+        targetId: created.tokenId,
+      });
+      return {
+        success: true,
+        token: created.token,
+        tokenId: created.tokenId,
+      };
+    }),
+    revokeToken: dashboardProcedure
+      .input(z.object({ tokenId: z.string().min(1) }))
+      .mutation(async ({ input, ctx }) => {
+        await db.revokeCodexPublisherToken(input.tokenId);
+        await logAdminAction(ctx, {
+          action: "codex_automation.revoke_token",
+          targetType: "codex_publisher_token",
+          targetId: input.tokenId,
+        });
+        return { success: true };
+      }),
+    setEnabled: dashboardProcedure
+      .input(z.object({ enabled: z.boolean() }))
+      .mutation(async ({ input, ctx }) => {
+        await db.setSetting("codexPublisherEnabled", String(input.enabled));
+        await logAdminAction(ctx, {
+          action: "codex_automation.set_enabled",
+          targetType: "site_setting",
+          targetId: "codexPublisherEnabled",
+          metadata: { enabled: input.enabled },
+        });
+        return { success: true, enabled: input.enabled };
       }),
   }),
 
