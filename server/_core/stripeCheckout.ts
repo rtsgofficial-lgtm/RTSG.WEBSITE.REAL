@@ -196,6 +196,7 @@ export async function createShopCheckoutSession(input: {
       },
     ],
     metadata: {
+      checkoutType: "shop",
       productId: product.id,
       variantId: variant.id,
       printfulSyncProductId: String(product.printfulSyncProductId),
@@ -265,16 +266,68 @@ export async function createDonationCheckoutSession(input: {
 }
 
 export function getRequestOrigin(req: Request) {
+  if (ENV.isProduction) {
+    const configuredOrigin = new URL(ENV.siteUrl).origin;
+
+    if (!configuredOrigin.startsWith("https://")) {
+      throw new Error("SITE_URL must use HTTPS in production.");
+    }
+
+    return configuredOrigin;
+  }
+
   const forwardedProto = req.headers["x-forwarded-proto"];
-  const proto = Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto;
+  const forwardedValue = Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto;
+  const proto = forwardedValue?.split(",")[0]?.trim() ?? req.protocol;
   const protocol = proto ?? req.protocol;
   const host = req.get("host");
 
-  if (!host) {
+  if (!host || (protocol !== "http" && protocol !== "https")) {
     throw new Error("Could not determine site origin.");
   }
 
   return `${protocol}://${host}`;
+}
+
+export type CheckoutReturnStatus = {
+  status: "paid" | "pending" | "failed";
+  productId: string | null;
+};
+
+export function summarizeCheckoutSession(
+  session: Stripe.Checkout.Session,
+  checkoutType: "shop" | "donation"
+): CheckoutReturnStatus {
+  const sessionType = session.metadata?.checkoutType;
+  const isExpectedType =
+    checkoutType === "donation"
+      ? sessionType === "donation"
+      : sessionType === "shop" || (!sessionType && Boolean(session.metadata?.productId));
+
+  if (!isExpectedType) {
+    return { status: "failed", productId: null };
+  }
+
+  const status =
+    session.status === "complete" && session.payment_status === "paid"
+      ? "paid"
+      : session.status === "expired"
+        ? "failed"
+        : "pending";
+
+  return {
+    status,
+    productId: checkoutType === "shop" ? (session.metadata?.productId ?? null) : null,
+  };
+}
+
+export async function getCheckoutReturnStatus(input: {
+  sessionId: string;
+  checkoutType: "shop" | "donation";
+}) {
+  const stripe = getStripeClient();
+  const session = await stripe.checkout.sessions.retrieve(input.sessionId);
+  return summarizeCheckoutSession(session, input.checkoutType);
 }
 
 function getOrderEmailSentKey(sessionId: string) {
@@ -359,11 +412,23 @@ export async function handleStripeWebhook(req: Request, res: Response) {
     return;
   }
 
-  if (event.type === "checkout.session.completed") {
+  if (
+    event.type === "checkout.session.completed" ||
+    event.type === "checkout.session.async_payment_succeeded"
+  ) {
     const eventSession = event.data.object;
 
     try {
       const session = await stripe.checkout.sessions.retrieve(eventSession.id);
+
+      if (session.payment_status !== "paid") {
+        console.log("[Stripe] Checkout completed with payment still pending", {
+          sessionId: eventSession.id,
+          paymentStatus: session.payment_status,
+        });
+        res.json({ received: true });
+        return;
+      }
 
       if (session.metadata?.checkoutType === "donation") {
         console.log("[Stripe] Donation checkout completed", {

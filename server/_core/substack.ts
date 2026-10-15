@@ -13,6 +13,7 @@ export type LatestSubstackPost = {
 
 const SUBSTACK_CACHE_TTL_MS = 30 * 60 * 1000;
 const SUBSTACK_ERROR_CACHE_TTL_MS = 5 * 60 * 1000;
+const SUBSTACK_FETCH_TIMEOUT_MS = 5_000;
 const SUBSTACK_HOST = "www.media.rtsg.org";
 const DEFAULT_SUBSTACK_FEED_URL = `https://${SUBSTACK_HOST}/feed`;
 
@@ -164,6 +165,7 @@ async function fetchSubstackFeedXml() {
           Accept: "application/rss+xml, application/xml;q=0.9, text/xml;q=0.8",
           "User-Agent": "RTSGWebsite/1.0 (+https://rtsg.org)",
         },
+        signal: AbortSignal.timeout(SUBSTACK_FETCH_TIMEOUT_MS),
       });
 
       if (!response.ok) {

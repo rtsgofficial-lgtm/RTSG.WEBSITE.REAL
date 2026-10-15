@@ -51,6 +51,8 @@ type StripeSessionWithShippingDetails = Stripe.Checkout.Session & {
 };
 
 const PRINTFUL_PRICE_CACHE_MS = 5 * 60 * 1000;
+const PRINTFUL_PRICE_TIMEOUT_MS = 4_000;
+const PRINTFUL_ORDER_TIMEOUT_MS = 10_000;
 const printfulPriceCache = new Map<number, { expiresAt: number; prices: Map<number, number> }>();
 
 function getPrintfulHeaders() {
@@ -135,6 +137,7 @@ export async function getPrintfulProductRetailPrices(syncProductId: number) {
   try {
     const response = await fetch(`https://api.printful.com/store/products/${syncProductId}`, {
       headers: getPrintfulHeaders(),
+      signal: AbortSignal.timeout(PRINTFUL_PRICE_TIMEOUT_MS),
     });
     const body = (await response.json()) as PrintfulStoreProductResponse;
 
@@ -177,6 +180,7 @@ export async function getPrintfulProductRetailPrices(syncProductId: number) {
 async function getExistingPrintfulOrder(externalId: string) {
   const response = await fetch(`https://api.printful.com/orders/@${encodeURIComponent(externalId)}`, {
     headers: getPrintfulHeaders(),
+    signal: AbortSignal.timeout(PRINTFUL_ORDER_TIMEOUT_MS),
   });
 
   if (response.status === 404) {
@@ -223,6 +227,7 @@ export async function createPrintfulDraftOrderFromStripeSession(session: Stripe.
   const response = await fetch("https://api.printful.com/orders", {
     method: "POST",
     headers: getPrintfulHeaders(),
+    signal: AbortSignal.timeout(PRINTFUL_ORDER_TIMEOUT_MS),
     body: JSON.stringify({
       external_id: externalId,
       recipient: toPrintfulRecipient(session),

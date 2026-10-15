@@ -9,34 +9,40 @@ import { trpc } from "./lib/trpc";
 import { lazy, Suspense, useState } from "react";
 import { X, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import Home from "./pages/Home";
-import Articles from "./pages/Articles";
-import ArticleNew from "./pages/ArticleNew";
-import ArticleDetail from "./pages/ArticleDetail";
-import ArticleEdit from "./pages/ArticleEdit";
-import About from "./pages/About";
-import Contact from "./pages/Contact";
-import Resources from "./pages/Resources";
-import PdfReader from "./pages/PdfReader";
-import Shop from "./pages/Shop";
-import ShopProduct from "./pages/ShopProduct";
-import Donate from "./pages/Donate";
-import DonateStatus from "./pages/DonateStatus";
-import AdminLogin from "./pages/AdminLogin";
-import AdminDashboard from "./pages/AdminDashboard";
-import Profile from "./pages/Profile";
-import UserProfile from "./pages/UserProfile";
 import Layout from "./components/Layout";
-import UnderConstruction from "./pages/UnderConstruction";
-import Login from "./pages/Login";
-import ForgotPassword from "./pages/ForgotPassword";
-import ResetPassword from "./pages/ResetPassword";
-import News, { NewsCategoryPage, NewsSearchPage } from "./pages/News";
-import NewsArticleDetail from "./pages/NewsArticleDetail";
-import NewsArticlePreview from "./pages/NewsArticlePreview";
-import Minecraft from "./pages/Minecraft";
-import Rules from "./pages/Rules";
 
+const Home = lazy(() => import("./pages/Home"));
+const Articles = lazy(() => import("./pages/Articles"));
+const ArticleNew = lazy(() => import("./pages/ArticleNew"));
+const ArticleDetail = lazy(() => import("./pages/ArticleDetail"));
+const ArticleEdit = lazy(() => import("./pages/ArticleEdit"));
+const About = lazy(() => import("./pages/About"));
+const Contact = lazy(() => import("./pages/Contact"));
+const Resources = lazy(() => import("./pages/Resources"));
+const PdfReader = lazy(() => import("./pages/PdfReader"));
+const Shop = lazy(() => import("./pages/Shop"));
+const ShopProduct = lazy(() => import("./pages/ShopProduct"));
+const Donate = lazy(() => import("./pages/Donate"));
+const DonateStatus = lazy(() => import("./pages/DonateStatus"));
+const AdminLogin = lazy(() => import("./pages/AdminLogin"));
+const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
+const Profile = lazy(() => import("./pages/Profile"));
+const UserProfile = lazy(() => import("./pages/UserProfile"));
+const UnderConstruction = lazy(() => import("./pages/UnderConstruction"));
+const Login = lazy(() => import("./pages/Login"));
+const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
+const ResetPassword = lazy(() => import("./pages/ResetPassword"));
+const News = lazy(() => import("./pages/News"));
+const NewsCategoryPage = lazy(() =>
+  import("./pages/News").then(module => ({ default: module.NewsCategoryPage }))
+);
+const NewsSearchPage = lazy(() =>
+  import("./pages/News").then(module => ({ default: module.NewsSearchPage }))
+);
+const NewsArticleDetail = lazy(() => import("./pages/NewsArticleDetail"));
+const NewsArticlePreview = lazy(() => import("./pages/NewsArticlePreview"));
+const Minecraft = lazy(() => import("./pages/Minecraft"));
+const Rules = lazy(() => import("./pages/Rules"));
 const Globe = lazy(() => import("./pages/Globe"));
 
 function RouteFallback() {

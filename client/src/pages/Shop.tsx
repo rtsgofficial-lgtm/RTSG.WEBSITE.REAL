@@ -17,8 +17,16 @@ export default function Shop() {
       ? new URLSearchParams(window.location.search)
       : null;
   const checkoutStatus = checkoutParams?.get("checkout") ?? null;
-  const checkoutProductId = checkoutParams?.get("product") ?? null;
+  const checkoutSessionId = checkoutParams?.get("session_id") ?? "";
+  const returnedProductId = checkoutParams?.get("product") ?? null;
   const { data: products = [] } = trpc.shop.listProducts.useQuery();
+  const checkoutVerification = trpc.shop.getCheckoutStatus.useQuery(
+    { sessionId: checkoutSessionId },
+    {
+      enabled: checkoutStatus === "success" && checkoutSessionId.startsWith("cs_"),
+      retry: false,
+    }
+  );
   const [selectedVariants, setSelectedVariants] = useState<
     Record<string, string>
   >({});
@@ -26,7 +34,11 @@ export default function Shop() {
   const [turnstileToken, setTurnstileToken] = useState("");
   const turnstileRef = useRef<TurnstileWidgetHandle | null>(null);
   const checkoutProduct = products.find(
-    product => product.id === checkoutProductId
+    product =>
+      product.id ===
+      (checkoutStatus === "success"
+        ? checkoutVerification.data?.productId
+        : returnedProductId)
   );
   const createCheckout = trpc.shop.createCheckoutSession.useMutation({
     onSuccess: session => {
@@ -128,9 +140,15 @@ export default function Shop() {
 
           {checkoutStatus === "success" && (
             <p className="mt-6 max-w-xl text-sm leading-relaxed text-white/64">
-              Payment received
-              {checkoutProduct ? ` for ${checkoutProduct.name}` : ""}. Your
-              order confirmation is on its way.
+              {!checkoutSessionId
+                ? "This checkout return is missing its Stripe confirmation. Check your receipt before trying again."
+                : checkoutVerification.isLoading
+                  ? "Confirming your payment with Stripe..."
+                  : checkoutVerification.data?.status === "paid"
+                    ? `Payment received${checkoutProduct ? ` for ${checkoutProduct.name}` : ""}. Your order confirmation is on its way.`
+                    : checkoutVerification.data?.status === "pending"
+                      ? "Stripe is still processing this payment. Your confirmation will arrive after it clears."
+                      : "We could not verify a completed payment for this checkout. No order has been marked as paid."}
             </p>
           )}
           {checkoutStatus === "cancelled" && (

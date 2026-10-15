@@ -26,6 +26,7 @@ import { getLatestSubstackPost } from "./_core/substack";
 import {
   createDonationCheckoutSession,
   createShopCheckoutSession,
+  getCheckoutReturnStatus,
   getRequestOrigin,
   getShopProduct,
   listShopProducts,
@@ -603,6 +604,7 @@ let youtubeCache: {
 } | null = null;
 
 const YOUTUBE_CACHE_TTL_MS = 30 * 60 * 1000;
+const YOUTUBE_FETCH_TIMEOUT_MS = 5_000;
 
 function extractYouTubeVideoId(url: string): string | null {
   const match = url.match(/(?:v=|youtu\.be\/|embed\/)([\w-]{11})/);
@@ -633,7 +635,9 @@ function formatPublishedTime(publishedAt?: string): string | null {
 }
 
 async function fetchJson<T>(url: URL): Promise<T> {
-  const response = await fetch(url);
+  const response = await fetch(url, {
+    signal: AbortSignal.timeout(YOUTUBE_FETCH_TIMEOUT_MS),
+  });
 
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
@@ -2088,6 +2092,25 @@ export const appRouter = router({
 
         return product;
       }),
+    getCheckoutStatus: publicProcedure
+      .input(
+        z.object({
+          sessionId: z.string().max(255).regex(/^cs_[A-Za-z0-9_]+$/),
+        })
+      )
+      .query(async ({ input }) => {
+        try {
+          return await getCheckoutReturnStatus({
+            sessionId: input.sessionId,
+            checkoutType: "shop",
+          });
+        } catch {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Checkout session could not be verified.",
+          });
+        }
+      }),
     updateProductCopy: dashboardProcedure
       .input(
         z.object({
@@ -2135,6 +2158,25 @@ export const appRouter = router({
   }),
 
   donations: router({
+    getCheckoutStatus: publicProcedure
+      .input(
+        z.object({
+          sessionId: z.string().max(255).regex(/^cs_[A-Za-z0-9_]+$/),
+        })
+      )
+      .query(async ({ input }) => {
+        try {
+          return await getCheckoutReturnStatus({
+            sessionId: input.sessionId,
+            checkoutType: "donation",
+          });
+        } catch {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Donation session could not be verified.",
+          });
+        }
+      }),
     createCheckoutSession: publicProcedure
       .input(
         z.object({
